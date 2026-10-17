@@ -10,8 +10,11 @@ import { advanceCameraFocus, getMachineFocus, type CameraFocus } from './machine
 
 type FocusRequest = { machineId: string; version: number } | null
 
-const ISOMETRIC_POLAR_ANGLE = Math.acos(1 / Math.sqrt(3))
-const INITIAL_CAMERA = { position: [60, 60, 60] as [number, number, number], zoom: 10, near: 0.1, far: 10000 }
+// Shift-drag up/down tilts between near top-down and near ground level, never below the floor.
+const MIN_TILT = 0.12
+const MAX_TILT = 1.45
+// Negative near: an orthographic camera hangs above the floor, so a positive near plane slices off the ground nearest the viewer (worse when tilted low).
+const INITIAL_CAMERA = { position: [60, 60, 60] as [number, number, number], zoom: 10, near: -10000, far: 10000 }
 
 function FactoryFloor() {
   return (
@@ -115,8 +118,8 @@ function StrategyControls({ fitVersion, focusRequest, activeMachines }: {
       onStart={() => { animation.current = null }}
       domElement={gl.domElement}
       enableRotate
-      minPolarAngle={ISOMETRIC_POLAR_ANGLE}
-      maxPolarAngle={ISOMETRIC_POLAR_ANGLE}
+      minPolarAngle={MIN_TILT}
+      maxPolarAngle={MAX_TILT}
       rotateSpeed={0.7}
       enablePan
       enableZoom
@@ -151,7 +154,7 @@ export function FactoryViewport({ fitVersion, placementType, placementRotation, 
   return (
     <Canvas
       className={`factory-canvas${placementType ? ' factory-canvas--placement' : ''}`}
-      aria-label="Factory floor. Click a machine to inspect; double-click to focus. Select a component, then click the floor to place it. Drag to move. Shift-drag to rotate. Scroll or pinch to zoom. Escape cancels placement mode or restores the overview."
+      aria-label="Factory floor. Click a machine to inspect; double-click to focus. Select a component, then click the floor to place it. Drag to move. Shift-drag left-right to rotate and up-down to tilt. Scroll or pinch to zoom. Escape cancels placement mode or restores the overview."
       orthographic
       shadows
       frameloop="demand"
@@ -160,7 +163,7 @@ export function FactoryViewport({ fitVersion, placementType, placementRotation, 
       gl={{ antialias: true }}
       onCreated={({ gl }) => {
         gl.domElement.tabIndex = 0
-        gl.domElement.setAttribute('aria-label', 'Factory floor canvas. Click a machine to inspect; double-click to focus. Select a component, then click the floor to place it. Drag to move. Shift-drag to rotate. Right-drag or use arrow keys to pan. Scroll or pinch to zoom. Escape cancels placement mode or restores the overview.')
+        gl.domElement.setAttribute('aria-label', 'Factory floor canvas. Click a machine to inspect; double-click to focus. Select a component, then click the floor to place it. Drag to move. Shift-drag left-right to rotate and up-down to tilt. Right-drag or use arrow keys to pan. Scroll or pinch to zoom. Escape cancels placement mode or restores the overview.')
       }}
       fallback={<div className="viewport-fallback">This viewport needs WebGL. Enable graphics acceleration in your browser, then reload.</div>}
     >
