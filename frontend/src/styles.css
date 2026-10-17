@@ -1,0 +1,83 @@
+:root {
+  font-family: 'Avenir Next', Avenir, 'Segoe UI', sans-serif;
+  color: #263844;
+  background: #dfe7ec;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; }
+button { font: inherit; }
+
+.factory-app {
+  width: 100%;
+  height: 100svh;
+  min-height: 280px;
+  position: relative;
+  overflow: hidden;
+}
+
+.factory-app canvas { touch-action: none; }
+.factory-canvas canvas { cursor: grab; }
+.factory-canvas canvas:active { cursor: grabbing; }
+.factory-canvas:focus-visible { outline: 2px solid #28649b; outline-offset: -4px; }
+.factory-app canvas:focus-visible { outline: 2px solid #28649b; outline-offset: -4px; }
+
+.viewport-header,
+.viewport-footer {
+  position: absolute;
+  left: max(28px, env(safe-area-inset-left));
+  right: max(28px, env(safe-area-inset-right));
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  pointer-events: none;
+}
+
+.viewport-header { top: max(26px, env(safe-area-inset-top)); }
+.identity { display: flex; align-items: center; gap: 14px; }
+.brand-mark { width: 30px; height: 30px; color: #28649b; }
+.brand-name { font-size: 19px; font-weight: 650; letter-spacing: -0.6px; }
+.header-divider { width: 1px; height: 20px; margin-inline: 4px; background: #b3c0ca; }
+h1 { margin: 0; font-size: 15px; font-weight: 500; }
+
+.viewport-footer { bottom: max(26px, env(safe-area-inset-bottom)); }
+.floor-caption { display: grid; gap: 3px; padding: 6px 9px; margin-left: -9px; border-radius: 6px; background: #dfe7ecef; }
+.floor-size { font-size: 16px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.floor-size span { margin-left: 4px; font-size: 12px; font-weight: 500; color: #4c606e; }
+.grid-caption { font-size: 12px; color: #4c606e; }
+.control-hints { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px 24px; margin: 0; padding: 6px 9px; border-radius: 6px; background: #dfe7ecef; font-size: 12px; color: #4c606e; }
+
+.fit-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  min-height: 44px;
+  padding: 10px 14px;
+  color: #263844;
+  background: #f6f9fb;
+  border: 1px solid #b3c0ca;
+  border-radius: 7px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  pointer-events: auto;
+}
+.fit-button svg { width: 18px; height: 18px; }
+.fit-button kbd { margin-left: 8px; font: inherit; font-size: 11px; color: #4c606e; font-weight: 400; }
+.fit-button:hover { background: white; border-color: #7d95a5; }
+.fit-button:active { background: #e9eff4; }
+.fit-button:focus-visible { outline: 3px solid #28649b; outline-offset: 3px; }
+.viewport-fallback { padding: 100px 28px; max-width: 50ch; line-height: 1.6; }
+
+@media (max-width: 760px) {
+  .viewport-header, .viewport-footer { left: 18px; right: 18px; gap: 12px; }
+  .control-hints { position: absolute; bottom: 66px; left: 0; right: 0; gap: 8px 16px; font-size: 11px; }
+  .identity { gap: 10px; }
+  .header-divider { margin-inline: 2px; }
+  .fit-button kbd { display: none; }
+}
