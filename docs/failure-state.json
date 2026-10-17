@@ -1,0 +1,20 @@
+{
+  "schemaVersion": "1.0",
+  "scenarioId": "six-job-demo",
+  "simulationTime": 6,
+  "phase": "failed",
+  "activeScheduleId": "baseline",
+  "failedMachineIds": ["F1"],
+  "blockedJobIds": ["J1", "J5"],
+  "machineStates": {
+    "C1": { "status": "idle", "currentOperationId": null },
+    "C2": { "status": "idle", "currentOperationId": null },
+    "C3": { "status": "idle", "currentOperationId": null },
+    "C4": { "status": "idle", "currentOperationId": null },
+    "F1": { "status": "failed", "currentOperationId": null },
+    "F2": { "status": "processing", "currentOperationId": "J3-forming" },
+    "F3": { "status": "processing", "currentOperationId": "J2-forming" },
+    "I1": { "status": "blocked", "currentOperationId": null },
+    "I2": { "status": "idle", "currentOperationId": null }
+  }
+}

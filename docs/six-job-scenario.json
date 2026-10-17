@@ -1,0 +1,31 @@
+{
+  "schemaVersion": "1.0",
+  "scenarioId": "six-job-demo",
+  "timeUnit": "minute",
+  "failure": { "machineId": "F1", "at": 6 },
+  "layout": {
+    "coordinateSystem": "x = production flow, z = lane, y = height",
+    "distanceUnit": "scene-unit",
+    "floor": { "width": 20, "depth": 14 }
+  },
+  "stages": ["cutting", "forming", "inspection"],
+  "machines": [
+    { "machineId": "C1", "stage": "cutting", "position": [-6, -4.5] },
+    { "machineId": "C2", "stage": "cutting", "position": [-6, -1.5] },
+    { "machineId": "C3", "stage": "cutting", "position": [-6, 1.5] },
+    { "machineId": "C4", "stage": "cutting", "position": [-6, 4.5] },
+    { "machineId": "F1", "stage": "forming", "position": [0, -3] },
+    { "machineId": "F2", "stage": "forming", "position": [0, 0] },
+    { "machineId": "F3", "stage": "forming", "position": [0, 3] },
+    { "machineId": "I1", "stage": "inspection", "position": [6, -1.5] },
+    { "machineId": "I2", "stage": "inspection", "position": [6, 1.5] }
+  ],
+  "jobs": [
+    { "jobId": "J1", "release": 0, "cuttingMinutes": 2, "formingMinutes": { "F1": 6, "F2": 8, "F3": 7 }, "inspectionMinutes": 2 },
+    { "jobId": "J2", "release": 0, "cuttingMinutes": 3, "formingMinutes": { "F1": 4, "F2": 5, "F3": 6 }, "inspectionMinutes": 2 },
+    { "jobId": "J3", "release": 0, "cuttingMinutes": 2, "formingMinutes": { "F1": 5, "F2": 7, "F3": 6 }, "inspectionMinutes": 3 },
+    { "jobId": "J4", "release": 0, "cuttingMinutes": 4, "formingMinutes": { "F1": 3, "F2": 4, "F3": 5 }, "inspectionMinutes": 2 },
+    { "jobId": "J5", "release": 0, "cuttingMinutes": 3, "formingMinutes": { "F1": 7, "F2": 8, "F3": 9 }, "inspectionMinutes": 3 },
+    { "jobId": "J6", "release": 0, "cuttingMinutes": 2, "formingMinutes": { "F1": 4, "F2": 6, "F3": 5 }, "inspectionMinutes": 2 }
+  ]
+}

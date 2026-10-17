@@ -1,0 +1,26 @@
+{
+  "schemaVersion": "1.0",
+  "scenarioId": "six-job-demo",
+  "scheduleId": "baseline",
+  "timeUnit": "minute",
+  "operations": [
+    { "jobId": "J1", "operationId": "J1-cutting", "stage": "cutting", "machineId": "C1", "start": 0, "end": 2 },
+    { "jobId": "J1", "operationId": "J1-forming", "stage": "forming", "machineId": "F1", "start": 2, "end": 8 },
+    { "jobId": "J1", "operationId": "J1-inspection", "stage": "inspection", "machineId": "I1", "start": 8, "end": 10 },
+    { "jobId": "J2", "operationId": "J2-cutting", "stage": "cutting", "machineId": "C2", "start": 0, "end": 3 },
+    { "jobId": "J2", "operationId": "J2-forming", "stage": "forming", "machineId": "F3", "start": 3, "end": 9 },
+    { "jobId": "J2", "operationId": "J2-inspection", "stage": "inspection", "machineId": "I2", "start": 9, "end": 11 },
+    { "jobId": "J3", "operationId": "J3-cutting", "stage": "cutting", "machineId": "C3", "start": 0, "end": 2 },
+    { "jobId": "J3", "operationId": "J3-forming", "stage": "forming", "machineId": "F2", "start": 2, "end": 9 },
+    { "jobId": "J3", "operationId": "J3-inspection", "stage": "inspection", "machineId": "I1", "start": 10, "end": 13 },
+    { "jobId": "J4", "operationId": "J4-cutting", "stage": "cutting", "machineId": "C4", "start": 0, "end": 4 },
+    { "jobId": "J4", "operationId": "J4-forming", "stage": "forming", "machineId": "F2", "start": 9, "end": 13 },
+    { "jobId": "J4", "operationId": "J4-inspection", "stage": "inspection", "machineId": "I2", "start": 13, "end": 15 },
+    { "jobId": "J5", "operationId": "J5-cutting", "stage": "cutting", "machineId": "C1", "start": 2, "end": 5 },
+    { "jobId": "J5", "operationId": "J5-forming", "stage": "forming", "machineId": "F1", "start": 8, "end": 15 },
+    { "jobId": "J5", "operationId": "J5-inspection", "stage": "inspection", "machineId": "I1", "start": 15, "end": 18 },
+    { "jobId": "J6", "operationId": "J6-cutting", "stage": "cutting", "machineId": "C3", "start": 2, "end": 4 },
+    { "jobId": "J6", "operationId": "J6-forming", "stage": "forming", "machineId": "F3", "start": 9, "end": 14 },
+    { "jobId": "J6", "operationId": "J6-inspection", "stage": "inspection", "machineId": "I2", "start": 15, "end": 17 }
+  ]
+}

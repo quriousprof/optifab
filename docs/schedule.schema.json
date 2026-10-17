@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://optifab.local/schemas/schedule.schema.json",
+  "title": "Six-job demo schedule",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "scenarioId", "scheduleId", "timeUnit", "operations"],
+  "properties": {
+    "schemaVersion": { "const": "1.0" },
+    "scenarioId": { "const": "six-job-demo" },
+    "scheduleId": { "type": "string", "minLength": 1 },
+    "timeUnit": { "const": "minute" },
+    "operations": {
+      "type": "array",
+      "minItems": 18,
+      "maxItems": 18,
+      "items": { "$ref": "#/$defs/scheduledOperation" }
+    }
+  },
+  "$defs": {
+    "scheduledOperation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["jobId", "operationId", "stage", "machineId", "start", "end"],
+      "properties": {
+        "jobId": { "enum": ["J1", "J2", "J3", "J4", "J5", "J6"] },
+        "operationId": { "pattern": "^J[1-6]-(cutting|forming|inspection)$", "type": "string" },
+        "stage": { "enum": ["cutting", "forming", "inspection"] },
+        "machineId": { "enum": ["C1", "C2", "C3", "C4", "F1", "F2", "F3", "I1", "I2"] },
+        "start": { "type": "integer", "minimum": 0 },
+        "end": { "type": "integer", "minimum": 1 }
+      },
+      "allOf": [
+        { "if": { "properties": { "stage": { "const": "cutting" } }, "required": ["stage"] }, "then": { "properties": { "machineId": { "enum": ["C1", "C2", "C3", "C4"] } } } },
+        { "if": { "properties": { "stage": { "const": "forming" } }, "required": ["stage"] }, "then": { "properties": { "machineId": { "enum": ["F1", "F2", "F3"] } } } },
+        { "if": { "properties": { "stage": { "const": "inspection" } }, "required": ["stage"] }, "then": { "properties": { "machineId": { "enum": ["I1", "I2"] } } } }
+      ]
+    }
+  }
+}

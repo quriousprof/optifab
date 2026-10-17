@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://optifab.local/schemas/factory-state.schema.json",
+  "title": "Six-job demo factory state",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "scenarioId", "simulationTime", "phase", "activeScheduleId", "failedMachineIds", "blockedJobIds", "machineStates"],
+  "properties": {
+    "schemaVersion": { "const": "1.0" },
+    "scenarioId": { "const": "six-job-demo" },
+    "simulationTime": { "type": "integer", "minimum": 0 },
+    "phase": { "enum": ["baseline", "failed", "recovered"] },
+    "activeScheduleId": { "type": "string", "minLength": 1 },
+    "failedMachineIds": { "type": "array", "uniqueItems": true, "items": { "enum": ["F1"] } },
+    "blockedJobIds": { "type": "array", "uniqueItems": true, "items": { "enum": ["J1", "J2", "J3", "J4", "J5", "J6"] } },
+    "machineStates": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["C1", "C2", "C3", "C4", "F1", "F2", "F3", "I1", "I2"],
+      "properties": {
+        "C1": { "$ref": "#/$defs/machineState" },
+        "C2": { "$ref": "#/$defs/machineState" },
+        "C3": { "$ref": "#/$defs/machineState" },
+        "C4": { "$ref": "#/$defs/machineState" },
+        "F1": { "$ref": "#/$defs/machineState" },
+        "F2": { "$ref": "#/$defs/machineState" },
+        "F3": { "$ref": "#/$defs/machineState" },
+        "I1": { "$ref": "#/$defs/machineState" },
+        "I2": { "$ref": "#/$defs/machineState" }
+      }
+    }
+  },
+  "$defs": {
+    "machineState": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "currentOperationId"],
+      "properties": {
+        "status": { "enum": ["idle", "processing", "failed", "blocked"] },
+        "currentOperationId": { "type": ["string", "null"], "pattern": "^J[1-6]-(cutting|forming|inspection)$" }
+      }
+    }
+  }
+}
