@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import asyncio
+import threading
 import traceback
 from uuid import uuid4
 
@@ -33,15 +33,16 @@ def start_optimization(method: str = "both") -> str:
     job_id = str(uuid4())
     _jobs[job_id] = OptimizeResult(jobId=job_id, status="pending")
 
-    asyncio.get_event_loop().create_task(_run_optimization(job_id, method))
+    thread = threading.Thread(target=_run_optimization, args=(job_id, method), daemon=True)
+    thread.start()
     return job_id
 
 
-async def _run_optimization(job_id: str, method: str) -> None:
+def _run_optimization(job_id: str, method: str) -> None:
     _jobs[job_id] = _jobs[job_id].model_copy(update={"status": "running"})
 
     try:
-        result = await asyncio.to_thread(_run_solvers, method)
+        result = _run_solvers(method)
         _jobs[job_id] = _jobs[job_id].model_copy(update={
             "status": "completed",
             **result,
