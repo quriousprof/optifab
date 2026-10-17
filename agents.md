@@ -9,9 +9,9 @@ Build a **3D factory digital twin** that displays the manufacturing pipeline, si
 | Layer | Technology | Notes |
 |-------|-----------|-------|
 | Frontend | React 19, React Three Fiber, Drei, Three.js, Tailwind CSS 4, Vite 7, TypeScript 5.9 | `frontend/` directory, port 3000 |
-| Backend | FastAPI (Python) | `backend/` directory, port 8000, not yet built |
-| AI/Decision support | Google Gemini | Failure analysis, schedule explanation, decision support |
-| Quantum optimization | QAOA | Experimental backend for a small, clearly defined scheduling problem |
+| Backend | FastAPI (Python), uv | `backend/` directory, port 8000 |
+| AI/Decision support | Google Gemini (`google-genai`) | Failure analysis, schedule explanation, decision support |
+| Quantum optimization | Google Cirq QAOA (10 qubits) | Machine-assignment optimization for recovery scheduling |
 | Infrastructure | Google Cloud, Docker Compose | `compose.yaml` defines service layout |
 
 ## Architecture
@@ -95,22 +95,22 @@ The frontend currently implements a **component editor** (drag-and-drop placemen
 - Production schedule Gantt chart below viewport (one row per machine, minute axis)
 - Failure trigger on F1, baseline/recovery schedule comparison
 
-## Backend (To Be Built)
+## Backend
 
-The backend will:
-1. Serve factory state and schedule data via FastAPI REST endpoints
-2. Integrate Gemini for failure analysis and schedule explanation
-3. Run QAOA-based quantum optimization for recovery scheduling
-4. Validate recovery schedules against the demo contract rules
+FastAPI backend (`backend/`) managed with `uv`:
+1. **Factory API**: serve state, schedules, trigger/reset failure, apply recovery
+2. **Optimizer**: Cirq QAOA (10-qubit machine assignment) + classical exhaustive search (1024 combos)
+3. **Gemini AI**: failure analysis and schedule explanation via `google-genai`
+4. **Validation**: enforce all demo-contract scheduling rules programmatically
 
-## Quantum Component (QAOA)
+## Quantum Component (Google Cirq QAOA)
 
-QAOA is used as an **experimental optimization backend** for the recovery scheduling problem:
-- Input: remaining unscheduled/interrupted operations after F1 failure
-- Problem: assign operations to machines and time slots minimizing makespan
-- Output: a valid recovery schedule conforming to `schedule.schema.json`
-- This is a small, well-defined combinatorial optimization problem suitable for QAOA demonstration
-- The quantum solver should be compared against a classical baseline for the demo
+QAOA runs on **Google Cirq** (`cirq-core`) as an experimental optimization backend:
+- **10 qubits**: 4 forming assignment bits + 6 inspection assignment bits
+- **QUBO objective**: minimize squared machine loads (load-balancing proxy for makespan)
+- **Pipeline**: QUBO → Ising → Cirq circuit (H init, ZZ+Rz cost, Rx mixer, p layers) → scipy COBYLA → best bitstring → greedy sequencing → full schedule
+- **Classical comparison**: exhaustive search over all 1024 machine-assignment combos provides ground truth
+- Simulator-only (no quantum hardware needed) — `cirq.Simulator` for 10 qubits is instant
 
 ## Key Rules
 

@@ -2,68 +2,95 @@
 
 ## Overview
 
-FastAPI (Python) backend serving the factory digital twin API. **Not yet built** — only a `.gitkeep` and Docker Compose service definition exist.
+FastAPI (Python) backend serving the factory digital twin API. Uses Google Cirq for QAOA quantum optimization and Google Gemini for AI-powered failure analysis. Managed with `uv`, runs on port 8000.
 
 See `../agents.md` for full project context (scenario, data contracts, failure rules).
 
-## Target Architecture
+## Directory Structure
 
-The backend will provide:
-
-### 1. REST API (FastAPI)
-
-- Serve factory state conforming to `docs/factory-state.schema.json`
-- Serve schedules conforming to `docs/schedule.schema.json`
-- Accept failure triggers and return updated factory state
-- Accept and validate recovery schedules against demo contract rules
-- Port 8000 (defined in `compose.yaml`)
-
-### 2. Gemini Integration (Google AI)
-
-- **Failure analysis**: explain what went wrong, which jobs are affected, and why
-- **Schedule explanation**: natural language description of the recovery schedule and tradeoffs
-- **Decision support**: help operators understand the proposed recovery plan
-
-### 3. QAOA Quantum Optimization
-
-- **Input**: remaining unscheduled/interrupted operations after F1 failure at time 6
-- **Problem**: job-shop scheduling — assign operations to available machines and time slots, minimizing makespan
-- **Constraints**: operation precedence (cutting->forming->inspection), no machine overlap, no F1 after time 6, preserve completed/running operations
-- **Output**: valid recovery schedule conforming to `schedule.schema.json`
-- Compare quantum result against a classical solver baseline
-
-### 4. Schedule Validation
-
-The API must validate recovery schedules beyond what JSON Schema can check:
-- Exactly one entry per operation (18 total)
-- Matching job/stage/operation IDs
-- `start < end` and correct duration for assigned machine
-- Precedence: cutting before forming before inspection for each job
-- No machine overlap (one operation per machine at a time)
-- Completed and unaffected running operations preserved from baseline
-- No F1 assignment at or after time 6
-
-## Data Contracts
-
-All in `docs/`:
-- `six-job-scenario.json` — machine positions, processing times, failure definition
-- `baseline-schedule.json` — pre-failure schedule (18 operations)
-- `failure-state.json` — factory state at minute 6 post-failure
-- `factory-state.schema.json` — JSON Schema for state snapshots
-- `schedule.schema.json` — JSON Schema for schedule format
-- `demo-contract.md` — authoritative rules
-
-## Docker
-
-```yaml
-# From compose.yaml
-backend:
-  build:
-    context: ./backend
-  ports:
-    - "8000:8000"
-  volumes:
-    - ./backend:/app
+```
+backend/
+  app/
+    main.py               # FastAPI app, CORS, router mounts
+    config.py              # pydantic-settings (OPTIFAB_ env prefix)
+    core/
+      schemas.py           # Pydantic v2 models (Schedule, FactoryState, OptimizeResult)
+      scenario.py          # Load docs/ fixtures, compute fixed vs reschedulable ops
+      validation.py        # Enforce all demo-contract scheduling rules
+    factory/
+      router.py            # GET /api/state, GET /api/schedule/{id}, POST trigger/reset/apply
+      service.py           # In-memory state manager (baseline→failed→recovered)
+    optimizer/
+      router.py            # POST /api/optimize, GET /api/optimize/{job_id}
+      service.py           # Orchestrate QAOA + classical, async job tracking
+      qubo.py              # Build 10x10 QUBO matrix for machine assignments
+      qaoa_solver.py       # Cirq QAOA circuit construction + scipy COBYLA optimization
+      classical.py         # Greedy + exhaustive (1024 combos) solvers
+      decoder.py           # Bitstring → machine assignments → full 18-op schedule
+    gemini/
+      router.py            # POST /api/ai/analyze-failure, POST /api/ai/explain-schedule
+      service.py           # google-genai async client + prompt templates
+  tests/
+    conftest.py            # Shared fixtures (scenario, baseline, fixed/reschedulable ops)
+    test_validation.py     # Schedule validation correctness
+    test_qubo.py           # QUBO matrix properties and brute-force optimality
+    test_classical.py      # Greedy and exhaustive solver validity
+    test_qaoa.py           # Cirq circuit build, bitstring validity, schedule quality
+  pyproject.toml           # uv project config with dependencies
+  Dockerfile               # Python 3.12-slim + uv
+  .env.example             # Environment variable template
 ```
 
-Dockerfile needs to be created.
+## Tech Stack
+
+- **FastAPI** — REST API framework
+- **Google Cirq** (`cirq-core`) — QAOA quantum circuit construction and simulation
+- **scipy** — COBYLA optimizer for QAOA parameter tuning
+- **Google Gemini** (`google-genai`) — Failure analysis and schedule explanation
+- **Pydantic v2** — Request/response validation
+- **uv** — Package management
+
+## QAOA Architecture (10 Qubits)
+
+The quantum solver optimizes **machine assignments** for 10 reschedulable operations:
+- 4 forming ops × 2 eligible machines (F2, F3) = 4 binary variables
+- 6 inspection ops × 2 eligible machines (I1, I2) = 6 binary variables
+- **Total: 10 qubits** — well within laptop simulator limits
+
+**Pipeline:** scenario → QUBO matrix → Ising conversion → Cirq QAOA circuit → scipy COBYLA → best bitstring → decode to assignments → greedy sequencing → full 18-op schedule → validation
+
+**QUBO objective:** minimize sum of squared machine loads (load balancing proxy for makespan).
+
+## API Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/state` | Current factory state |
+| GET | `/api/scenario` | Scenario definition |
+| GET | `/api/schedule/{id}` | Get schedule by ID |
+| POST | `/api/failure/trigger` | Trigger F1 failure |
+| POST | `/api/failure/reset` | Reset to baseline |
+| POST | `/api/optimize` | Start QAOA + classical (202 + job ID) |
+| GET | `/api/optimize/{job_id}` | Poll optimization status |
+| POST | `/api/recovery/apply` | Apply recovery schedule |
+| POST | `/api/ai/analyze-failure` | Gemini failure analysis |
+| POST | `/api/ai/explain-schedule` | Gemini schedule explanation |
+
+## Commands
+
+```sh
+cd backend
+uv sync                                    # Install dependencies
+uv run uvicorn app.main:app --reload       # Dev server on port 8000
+uv run pytest tests/                       # Run all tests
+uv run pytest tests/ -m "not slow"         # Skip QAOA quality test
+```
+
+## Environment Variables
+
+```sh
+OPTIFAB_GEMINI_API_KEY=   # Required for /api/ai/* endpoints
+OPTIFAB_QAOA_DEPTH=2      # QAOA circuit layers (default: 2)
+OPTIFAB_QAOA_SHOTS=1024   # Measurement shots per evaluation (default: 1024)
+OPTIFAB_QAOA_OPTIMIZER_MAXITER=100  # COBYLA max iterations (default: 100)
+```
