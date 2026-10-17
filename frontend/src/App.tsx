@@ -1,11 +1,14 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { FactoryViewport } from './FactoryViewport'
+import type { PlaceOptions } from './SceneInteraction'
 import { ComponentSidebar } from './ComponentSidebar'
+import { mergeConveyors, resizeConveyor, rotateMachine } from './connections'
 import { FLOOR_SIZE, type EditorMode, type FactoryComponentType, type FloorPosition, type PlacedMachine } from './factoryComponents'
 
 export function App() {
   const [fitVersion, setFitVersion] = useState(0)
   const [editorMode, setEditorMode] = useState<EditorMode>({ mode: 'navigate' })
+  const [placementRotation, setPlacementRotation] = useState(0)
   const [activeMachines, setActiveMachines] = useState<PlacedMachine[]>([])
   const [selectedMachineId, setSelectedMachineId] = useState<string | null>(null)
   const [focusRequest, setFocusRequest] = useState<{ machineId: string; version: number } | null>(null)
@@ -17,13 +20,24 @@ export function App() {
   const focusMachine = useCallback((machineId: string) => {
     setFocusRequest((previous) => ({ machineId, version: (previous?.version ?? 0) + 1 }))
   }, [])
-  const placeMachine = useCallback((componentType: FactoryComponentType, position: FloorPosition) => {
-    const machine: PlacedMachine = { id: crypto.randomUUID(), componentType, position }
-    setActiveMachines((machines) => [...machines, machine])
+  const placeMachine = useCallback((componentType: FactoryComponentType, position: FloorPosition, options: PlaceOptions = {}) => {
+    const machine: PlacedMachine = { id: crypto.randomUUID(), componentType, position, ...options }
+    setActiveMachines((machines) => mergeConveyors([...machines, machine]))
   }, [])
   const moveMachine = useCallback((id: string, position: FloorPosition) => {
     setActiveMachines((machines) => machines.map((machine) => (machine.id === id ? { ...machine, position } : machine)))
   }, [])
+  const settleMachine = useCallback((id: string) => {
+    setActiveMachines((machines) => mergeConveyors(machines, id))
+  }, [])
+  // A merge can absorb the selected belt's id.
+  useEffect(() => {
+    if (selectedMachineId && !activeMachines.some((m) => m.id === selectedMachineId)) setSelectedMachineId(null)
+  }, [activeMachines, selectedMachineId])
+  const resizeSelected = useCallback((length: number) => {
+    setActiveMachines((machines) => machines.map((machine) => (machine.id === selectedMachineId ? resizeConveyor(machine, machines, length) : machine)))
+    settleMachine(selectedMachineId!)
+  }, [selectedMachineId, settleMachine])
   const fit = () => {
     setSelectedMachineId(null)
     setFocusRequest(null)
@@ -35,6 +49,10 @@ export function App() {
       className={`factory-app${selectedMachineId ? ' factory-app--inspecting' : ''}`}
       aria-label="Factory floor viewer"
       onKeyDown={(event) => {
+        if (event.key.toLowerCase() === 'r' && !event.repeat && !event.ctrlKey && !event.metaKey && !event.altKey) {
+          if (editorMode.mode === 'placement') setPlacementRotation((turns) => (turns + 1) % 4)
+          else if (selectedMachineId) setActiveMachines((machines) => mergeConveyors(machines.map((m) => (m.id === selectedMachineId ? rotateMachine(m) : m)), selectedMachineId))
+        }
         if (event.key === 'Escape') {
           if (editorMode.mode === 'placement') setEditorMode({ mode: 'navigate' })
           else fit()
@@ -50,6 +68,7 @@ export function App() {
       <FactoryViewport
         fitVersion={fitVersion}
         placementType={editorMode.mode === 'placement' ? editorMode.componentType : null}
+        placementRotation={placementRotation}
         activeMachines={activeMachines}
         selectedMachineId={selectedMachineId}
         focusRequest={focusRequest}
@@ -57,11 +76,14 @@ export function App() {
         onFocus={focusMachine}
         onPlace={placeMachine}
         onMove={moveMachine}
+        onSettle={settleMachine}
       />
 
       <ComponentSidebar
         editorMode={editorMode}
         machineCount={activeMachines.length}
+        selectedConveyor={activeMachines.find((m) => m.id === selectedMachineId && m.componentType === 'conveyor-belt')}
+        onResize={resizeSelected}
         onSelect={(componentType) => {
           setSelectedMachineId(null)
           setFocusRequest(null)
@@ -88,8 +110,8 @@ export function App() {
           <span className="grid-caption">Grid spacing: 1 unit</span>
         </div>
         <p className="control-hints" id="viewport-help">
-          {editorMode.mode === 'placement' && <span>Click the floor to place</span>}
-          {editorMode.mode === 'navigate' && activeMachines.length > 0 && <span>Click to inspect; double-click to focus; drag a machine to move it</span>}
+          {editorMode.mode === 'placement' && <span>Click to place; drag to lay a conveyor; R rotates</span>}
+          {editorMode.mode === 'navigate' && activeMachines.length > 0 && <span>Click to inspect; double-click to focus; drag a machine to move it; R rotates</span>}
           <span>Drag to move; Shift-drag to rotate</span>
           <span>Right-drag / arrows to pan</span>
           <span>Scroll / pinch to zoom</span>

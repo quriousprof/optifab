@@ -1,4 +1,5 @@
-import { FACTORY_COMPONENTS, type FactoryComponent, type FactoryComponentType, type EditorMode } from './factoryComponents'
+import { MAX_LENGTH, MIN_LENGTH } from './connections'
+import { FACTORY_COMPONENTS, machineWidth, type PlacedMachine, type FactoryComponent, type FactoryComponentType, type EditorMode } from './factoryComponents'
 
 function ComponentShape({ component }: { component: FactoryComponent }) {
   return (
@@ -23,7 +24,23 @@ function ComponentShape({ component }: { component: FactoryComponent }) {
   )
 }
 
-export function ComponentSidebar({ editorMode, machineCount, onSelect, onCancel }: {
+function LengthButton({ label, symbol, length, onResize }: { label: string; symbol: string; length: number; onResize: (length: number) => void }) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      disabled={length < MIN_LENGTH || length > MAX_LENGTH}
+      onClick={() => onResize(length)}
+      className="size-10 cursor-pointer rounded-md border border-[#b3c0ca] bg-white text-base font-semibold hover:bg-[#e7eff6] disabled:cursor-default disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#28649b]"
+    >
+      {symbol}
+    </button>
+  )
+}
+
+export function ComponentSidebar({ editorMode, machineCount, selectedConveyor, onResize, onSelect, onCancel }: {
+  selectedConveyor?: PlacedMachine
+  onResize: (length: number) => void
   editorMode: EditorMode
   machineCount: number
   onSelect: (type: FactoryComponentType) => void
@@ -72,13 +89,27 @@ export function ComponentSidebar({ editorMode, machineCount, onSelect, onCancel 
         })}
       </div>
 
+      {selectedConveyor && (() => {
+        const length = machineWidth(selectedConveyor.componentType, selectedConveyor.length)
+        return (
+        <div className="mt-4 border-t border-[#d4dfe7] pt-4" role="group" aria-label="Conveyor length">
+          <p className="text-xs font-semibold">Conveyor length</p>
+          <div className="mt-2 flex items-center gap-2">
+            <LengthButton label="Shorten conveyor" symbol="−" length={length - 1} onResize={onResize} />
+            <span className="min-w-12 text-center text-xs tabular-nums">{length} units</span>
+            <LengthButton label="Lengthen conveyor" symbol="+" length={length + 1} onResize={onResize} />
+          </div>
+        </div>
+        )
+      })()}
+
       <div className="mt-4 border-t border-[#d4dfe7] pt-4">
         <div role="status" aria-live="polite" aria-atomic="true" className="text-xs leading-5 text-[#4c606e]">
           {selected ? (
             <>
               <p className="font-semibold text-[#28649b]">Placement mode</p>
               <p>{selected.name} selected.</p>
-              <p className="mt-1">Move over the floor to preview. Click to place; keep the preview inside the floor.</p>
+              <p className="mt-1">Move over the floor to preview. Click to place and press R to rotate. Drag with the conveyor to lay a longer belt. Ends snap together: a blue output meets an orange input and both turn green.</p>
             </>
           ) : <p>Select a component to enter placement mode.</p>}
           <p className="mt-2">{machineCount} {machineCount === 1 ? 'machine' : 'machines'} placed</p>

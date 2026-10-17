@@ -3,8 +3,9 @@ import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { Grid, OrbitControls } from '@react-three/drei'
 import { MOUSE, TOUCH, OrthographicCamera } from 'three'
 import { FLOOR_SIZE, type FactoryComponentType, type FloorPosition, type PlacedMachine } from './factoryComponents'
-import { MachineMesh } from './MachineMesh'
-import { SceneInteraction } from './SceneInteraction'
+import { CornerMesh, MachineMesh } from './MachineMesh'
+import { connectedPorts, conveyorRun, cornerTiles } from './connections'
+import { SceneInteraction, type PlaceOptions } from './SceneInteraction'
 import { advanceCameraFocus, getMachineFocus, type CameraFocus } from './machineInteraction'
 
 type FocusRequest = { machineId: string; version: number } | null
@@ -132,17 +133,20 @@ function StrategyControls({ fitVersion, focusRequest, activeMachines }: {
   )
 }
 
-export function FactoryViewport({ fitVersion, placementType, activeMachines, selectedMachineId, focusRequest, onPlace, onMove, onSelect, onFocus }: {
+export function FactoryViewport({ fitVersion, placementType, placementRotation, activeMachines, selectedMachineId, focusRequest, onPlace, onMove, onSettle, onSelect, onFocus }: {
   fitVersion: number
   placementType: FactoryComponentType | null
+  placementRotation: number
   activeMachines: PlacedMachine[]
   selectedMachineId: string | null
   focusRequest: FocusRequest
-  onPlace: (type: FactoryComponentType, position: FloorPosition) => void
+  onPlace: (type: FactoryComponentType, position: FloorPosition, options?: PlaceOptions) => void
   onMove: (id: string, position: FloorPosition) => void
+  onSettle: (id: string) => void
   onSelect: (id: string | null) => void
   onFocus: (id: string) => void
 }) {
+  const run = selectedMachineId ? conveyorRun(selectedMachineId, activeMachines) : null
   return (
     <Canvas
       className={`factory-canvas${placementType ? ' factory-canvas--placement' : ''}`}
@@ -176,9 +180,12 @@ export function FactoryViewport({ fitVersion, placementType, activeMachines, sel
       />
       <FactoryFloor />
       {activeMachines.map((machine) => (
-        <MachineMesh key={machine.id} machineId={machine.id} selected={selectedMachineId === machine.id} componentType={machine.componentType} position={machine.position} />
+        <MachineMesh key={machine.id} machineId={machine.id} selected={selectedMachineId === machine.id} highlighted={run?.has(machine.id)} componentType={machine.componentType} position={machine.position} length={machine.length} rotation={machine.rotation} ports={connectedPorts(machine, activeMachines)} />
       ))}
-      <SceneInteraction componentType={placementType} machines={activeMachines} onPlace={onPlace} onMove={onMove} onSelect={onSelect} onFocus={onFocus} />
+      {cornerTiles(activeMachines).map((tile) => (
+        <CornerMesh key={tile.ids.join()} center={tile.center} from={tile.from} to={tile.to} highlighted={!!run?.has(tile.ids[0]) && !!run.has(tile.ids[1])} />
+      ))}
+      <SceneInteraction componentType={placementType} rotation={placementRotation} machines={activeMachines} onPlace={onPlace} onMove={onMove} onSettle={onSettle} onSelect={onSelect} onFocus={onFocus} />
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.62, 0]} receiveShadow>
         <planeGeometry args={[10000, 10000]} />
         <shadowMaterial transparent opacity={0.12} />

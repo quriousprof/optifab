@@ -38,8 +38,9 @@ test('raycasting matches the floor under an isometric orthographic pointer', () 
 test('placement rejects the infinite backdrop and machine footprints beyond the floor', () => {
   const edge = FLOOR_SIZE / 2
   assert.equal(getSnappedFloorPosition(rayAt(edge + 1, 0), 'conveyor-belt'), null)
-  assert.equal(getSnappedFloorPosition(rayAt(edge - 1, 0), 'conveyor-belt'), null)
-  assert.deepEqual(getSnappedFloorPosition(rayAt(edge - 3, 0), 'conveyor-belt'), [47, 0, 0])
+  assert.equal(getSnappedFloorPosition(rayAt(edge - 0.4, 0), 'conveyor-belt'), null) // rounds to 50, so it would overhang
+  assert.deepEqual(getSnappedFloorPosition(rayAt(edge - 1, 0), 'conveyor-belt'), [49, 0, 0])
+  assert.equal(getSnappedFloorPosition(rayAt(edge - 1, 0), 'conveyor-belt', [6, 2]), null)
   assert.equal(getSnappedFloorPosition(rayAt(0, -edge + 1), 'cnc-milling-machine'), null)
 })
 

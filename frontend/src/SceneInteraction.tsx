@@ -3,14 +3,21 @@ import { useFrame, useThree } from '@react-three/fiber'
 import { Raycaster, Vector2 } from 'three'
 import { MachineMesh } from './MachineMesh'
 import type { FactoryComponentType, FloorPosition, PlacedMachine } from './factoryComponents'
-import { getSnappedFloorPosition, isPlacementClick, isPlacementPointer, trackPlacementDrag, type PlacementGesture } from './placement'
+import { layConveyor, resolvePlacement } from './connections'
+import { floorPoint, isPlacementClick, isPlacementPointer, trackPlacementDrag, type PlacementGesture } from './placement'
 import { isDoubleMachineClick, pickMachine, type MachineClick } from './machineInteraction'
 
-export function SceneInteraction({ componentType, machines, onPlace, onMove, onSelect, onFocus }: {
+type Ghost = { position: FloorPosition; length?: number; rotation: number }
+
+export type PlaceOptions = { length?: number; rotation?: number }
+
+export function SceneInteraction({ componentType, rotation, machines, onPlace, onMove, onSettle, onSelect, onFocus }: {
   componentType: FactoryComponentType | null
+  rotation: number
   machines: PlacedMachine[]
   onMove: (id: string, position: FloorPosition) => void
-  onPlace: (type: FactoryComponentType, position: FloorPosition) => void
+  onPlace: (type: FactoryComponentType, position: FloorPosition, options?: PlaceOptions) => void
+  onSettle: (id: string) => void
   onSelect: (id: string | null) => void
   onFocus: (id: string) => void
 }) {
@@ -25,8 +32,11 @@ export function SceneInteraction({ componentType, machines, onPlace, onMove, onS
   const controls = useThree((state) => state.controls) as { enabled: boolean } | null
   const machinesRef = useRef(machines)
   machinesRef.current = machines
+  const rotationRef = useRef(rotation)
+  rotationRef.current = rotation
   const moving = useRef<string | null>(null)
-  const [position, setPosition] = useState<FloorPosition | null>(null)
+  const lay = useRef<[number, number] | null>(null) // start cell of a conveyor being dragged out
+  const [ghost, setGhost] = useState<Ghost | null>(null)
 
   useEffect(() => {
     const canvas = gl.domElement
@@ -41,6 +51,7 @@ export function SceneInteraction({ componentType, machines, onPlace, onMove, onS
     }
     const stopMoving = () => {
       moving.current = null
+      lay.current = null
       if (controls) controls.enabled = true
     }
     const clear = () => {
@@ -48,15 +59,24 @@ export function SceneInteraction({ componentType, machines, onPlace, onMove, onS
       pointer.current = null
       gesture.current = null
       lastClick.current = null
-      setPosition(null)
+      setGhost(null)
       invalidate()
     }
     // Capture phase on window so OrbitControls never starts panning when the press lands on a machine.
     const grab = (event: PointerEvent) => {
-      if (event.target !== canvas || componentType || !isPlacementPointer(event) || !controls) return
+      if (event.target !== canvas || !isPlacementPointer(event) || !controls) return
       updatePointer(event)
       camera.updateMatrixWorld()
       raycaster.current.setFromCamera(pointer.current!, camera)
+      if (componentType === 'conveyor-belt') { // left-drag lays a conveyor instead of panning
+        const point = floorPoint(raycaster.current)
+        if (point) {
+          lay.current = [Math.round(point[0]) || 0, Math.round(point[1]) || 0]
+          controls.enabled = false
+        }
+        return
+      }
+      if (componentType) return
       moving.current = pickMachine(raycaster.current, scene)
       if (moving.current) controls.enabled = false
     }
@@ -73,16 +93,29 @@ export function SceneInteraction({ componentType, machines, onPlace, onMove, onS
       if (machine && gesture.current?.dragged) {
         camera.updateMatrixWorld()
         raycaster.current.setFromCamera(pointer.current!, camera)
-        const next = getSnappedFloorPosition(raycaster.current, machine.componentType)
+        const next = resolvePlacement(raycaster.current, machine.componentType, machine.length, machine.rotation ?? 0, machinesRef.current, machine.id)
         if (next && (next[0] !== machine.position[0] || next[2] !== machine.position[2])) onMove(machine.id, next)
       }
     }
     const up = (event: PointerEvent) => {
+      const start = lay.current
+      const wasMoving = moving.current
       stopMoving()
       const canPlace = isPlacementClick(gesture.current, event)
+      const dragged = gesture.current?.dragged
       gesture.current = null
+      if (wasMoving && dragged) onSettle(wasMoving)
       if (!canPlace) {
         lastClick.current = null
+        if (start && dragged) {
+          updatePointer(event)
+          camera.updateMatrixWorld()
+          raycaster.current.setFromCamera(pointer.current!, camera)
+          const point = floorPoint(raycaster.current)
+          const laid = point && layConveyor(start, point, machinesRef.current, rotationRef.current)
+          if (laid) onPlace('conveyor-belt', laid.position, laid)
+          setGhost(null)
+        }
         return
       }
 
@@ -98,7 +131,7 @@ export function SceneInteraction({ componentType, machines, onPlace, onMove, onS
           onFocus(machineId)
           lastClick.current = null
         } else lastClick.current = click
-        setPosition(null)
+        setGhost(null)
         return
       }
       lastClick.current = null
@@ -106,8 +139,8 @@ export function SceneInteraction({ componentType, machines, onPlace, onMove, onS
         onSelect(null)
         return
       }
-      const snapped = getSnappedFloorPosition(raycaster.current, componentType)
-      if (snapped) onPlace(componentType, snapped)
+      const snapped = resolvePlacement(raycaster.current, componentType, undefined, rotationRef.current, machinesRef.current)
+      if (snapped) onPlace(componentType, snapped, { rotation: rotationRef.current })
     }
 
     // Sidebar drag-and-drop: pointer events are suppressed during a drag, so track dragover instead.
@@ -121,9 +154,9 @@ export function SceneInteraction({ componentType, machines, onPlace, onMove, onS
       updatePointer(event as unknown as PointerEvent)
       camera.updateMatrixWorld()
       raycaster.current.setFromCamera(pointer.current!, camera)
-      const snapped = getSnappedFloorPosition(raycaster.current, componentType)
-      if (snapped) onPlace(componentType, snapped)
-      setPosition(null)
+      const snapped = resolvePlacement(raycaster.current, componentType, undefined, rotationRef.current, machinesRef.current)
+      if (snapped) onPlace(componentType, snapped, { rotation: rotationRef.current })
+      setGhost(null)
     }
 
     window.addEventListener('pointerdown', grab, true)
@@ -148,22 +181,30 @@ export function SceneInteraction({ componentType, machines, onPlace, onMove, onS
       canvas.removeEventListener('pointercancel', clear)
       window.removeEventListener('blur', clear)
     }
-  }, [camera, gl, invalidate, scene, componentType, controls, onPlace, onMove, onSelect, onFocus])
+  }, [camera, gl, invalidate, scene, componentType, controls, onPlace, onMove, onSettle, onSelect, onFocus])
 
   useFrame(() => {
     if (!pointer.current || !componentType) return
     // Recompute after OrbitControls, including zoom/pan with a stationary mouse.
     camera.updateMatrixWorld()
     raycaster.current.setFromCamera(pointer.current, camera)
-    const next = pickMachine(raycaster.current, scene) ? null : getSnappedFloorPosition(raycaster.current, componentType)
-    setPosition((previous) => {
+    let next: Ghost | null = null
+    if (lay.current) {
+      const point = floorPoint(raycaster.current)
+      next = point && layConveyor(lay.current, point, machinesRef.current, rotationRef.current)
+    } else if (!pickMachine(raycaster.current, scene)) {
+      const position = resolvePlacement(raycaster.current, componentType, undefined, rotationRef.current, machinesRef.current)
+      next = position && { position, rotation: rotationRef.current }
+    }
+    setGhost((previous) => {
       if (!next) return previous === null ? previous : null
-      return previous?.[0] === next[0] && previous[2] === next[2] ? previous : next
+      return previous && previous.position[0] === next.position[0] && previous.position[2] === next.position[2] &&
+        previous.length === next.length && previous.rotation === next.rotation ? previous : next
     })
   })
 
   // A type change invalidates the old preview until the next raycast.
-  useEffect(() => { setPosition(null) }, [componentType])
+  useEffect(() => { setGhost(null) }, [componentType])
 
-  return position && componentType ? <MachineMesh componentType={componentType} position={position} ghost /> : null
+  return ghost && componentType ? <MachineMesh componentType={componentType} position={ghost.position} length={ghost.length} rotation={ghost.rotation} ghost /> : null
 }

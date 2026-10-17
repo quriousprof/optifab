@@ -1,5 +1,5 @@
 import { Mesh, Vector3, type Object3D, type OrthographicCamera, type Raycaster } from 'three'
-import { getFactoryComponent, type PlacedMachine } from './factoryComponents.ts'
+import { getFactoryComponent, machineWidth, type PlacedMachine } from './factoryComponents.ts'
 
 export function pickMachine(raycaster: Raycaster, scene: Object3D): string | null {
   const meshes: Object3D[] = []
@@ -21,7 +21,7 @@ export function isDoubleMachineClick(previous: MachineClick | null, current: Mac
 export type CameraFocus = { position: Vector3; target: Vector3; zoom: number }
 
 export function getMachineFocus(machine: PlacedMachine, camera: OrthographicCamera, orbitTarget: Vector3, width: number, height: number): CameraFocus {
-  const dimensions = getFactoryComponent(machine.componentType).dimensions
+  const dimensions = [machineWidth(machine.componentType, machine.length), ...getFactoryComponent(machine.componentType).dimensions.slice(1)]
   const target = new Vector3(...machine.position).add(new Vector3(0, dimensions[1] / 2, 0))
   const offset = camera.position.clone().sub(orbitTarget)
   return {
