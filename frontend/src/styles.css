@@ -90,6 +90,14 @@ h1 { margin: 0; font-size: 15px; font-weight: 500; }
   box-shadow: 0 6px 20px #26384418;
   pointer-events: none;
 }
+.machine-status-card { position: relative; }
+.machine-status-delete {
+  position: absolute; top: 8px; right: 8px; width: 24px; height: 24px; display: grid; place-items: center;
+  padding: 0; color: #4c606e; background: transparent; border: 0; border-radius: 6px; cursor: pointer; pointer-events: auto;
+}
+.machine-status-delete svg { width: 11px; height: 11px; }
+.machine-status-delete:hover { color: #b3362f; background: #f6e4e2; }
+.machine-status-delete:focus-visible { outline: 2px solid #28649b; outline-offset: 1px; }
 .machine-status-card h2 { margin: 0 0 10px; font-size: 13px; font-weight: 650; }
 .machine-status-card dl { margin: 0; display: grid; gap: 6px; font-size: 12px; }
 .machine-status-card dl div { display: flex; justify-content: space-between; gap: 14px; }

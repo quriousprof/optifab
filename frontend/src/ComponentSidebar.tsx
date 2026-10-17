@@ -38,7 +38,11 @@ function LengthButton({ label, symbol, length, onResize }: { label: string; symb
   )
 }
 
-export function ComponentSidebar({ editorMode, machineCount, selectedConveyor, onResize, onSelect, onCancel }: {
+export function ComponentSidebar({ editorMode, machineCount, selectedConveyor, onResize, canDelete, onDelete, canUndo, onUndo, onSelect, onCancel }: {
+  canDelete: boolean
+  onDelete: () => void
+  canUndo: boolean
+  onUndo: () => void
   selectedConveyor?: PlacedMachine
   onResize: (length: number) => void
   editorMode: EditorMode
@@ -102,6 +106,21 @@ export function ComponentSidebar({ editorMode, machineCount, selectedConveyor, o
         </div>
         )
       })()}
+
+      <div className="mt-4 flex gap-2 border-t border-[#d4dfe7] pt-4">
+        {([['Undo', canUndo, onUndo, 'Ctrl/Cmd+Z'], ['Delete', canDelete, onDelete, 'Del']] as const).map(([label, enabled, action, hint]) => (
+          <button
+            key={label}
+            type="button"
+            disabled={!enabled}
+            title={hint}
+            onClick={action}
+            className="min-h-10 flex-1 cursor-pointer rounded-md border border-[#b3c0ca] bg-white text-xs font-semibold hover:bg-[#e7eff6] disabled:cursor-default disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#28649b]"
+          >
+            {label}
+          </button>
+        ))}
+      </div>
 
       <div className="mt-4 border-t border-[#d4dfe7] pt-4">
         <div role="status" aria-live="polite" aria-atomic="true" className="text-xs leading-5 text-[#4c606e]">

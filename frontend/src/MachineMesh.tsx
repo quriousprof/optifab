@@ -16,13 +16,14 @@ export function CornerMesh({ center, from, to, highlighted }: { center: [number,
   )
 }
 
-export function MachineMesh({ componentType, position, ghost = false, machineId, selected = false, highlighted = false, length, rotation = 0, ports }: {
+export function MachineMesh({ componentType, position, ghost = false, machineId, selected = false, highlighted = false, onDelete, length, rotation = 0, ports }: {
   componentType: FactoryComponentType
   position: FloorPosition
   ghost?: boolean
   machineId?: string
   selected?: boolean
   highlighted?: boolean // part of the selected run: outline only, no status card
+  onDelete?: () => void
   length?: number
   rotation?: number
   ports?: { in: boolean; out: boolean }
@@ -60,6 +61,9 @@ export function MachineMesh({ componentType, position, ghost = false, machineId,
           </mesh>
           {selected && <Html position={[0, height + 0.8, 0]} center zIndexRange={[5, 0]} wrapperClass="machine-status-anchor" style={{ pointerEvents: 'none' }}>
             <section className="machine-status-card" aria-label={`${component.name} status`} role="status">
+              <button type="button" className="machine-status-delete" aria-label={`Delete ${component.name}`} title="Delete" onClick={onDelete}>
+                <svg viewBox="0 0 12 12" aria-hidden="true"><path d="m2 2 8 8M10 2l-8 8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></svg>
+              </button>
               <h2>{component.name}</h2>
               <dl>
                 <div><dt>Status</dt><dd><span className="status-dot" />Operational</dd></div>

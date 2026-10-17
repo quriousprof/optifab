@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { FactoryViewport } from './FactoryViewport'
 import type { PlaceOptions } from './SceneInteraction'
 import { ComponentSidebar } from './ComponentSidebar'
@@ -12,6 +12,23 @@ export function App() {
   const [activeMachines, setActiveMachines] = useState<PlacedMachine[]>([])
   const [selectedMachineId, setSelectedMachineId] = useState<string | null>(null)
   const [focusRequest, setFocusRequest] = useState<{ machineId: string; version: number } | null>(null)
+  // Undo: every edit pushes the previous layout (immutable arrays, so snapshots are cheap).
+  const machinesRef = useRef(activeMachines)
+  machinesRef.current = activeMachines
+  const history = useRef<PlacedMachine[][]>([])
+  const dragging = useRef(false) // a whole drag is one undo step
+  const [undoDepth, setUndoDepth] = useState(0)
+  const checkpoint = useCallback(() => {
+    history.current = [...history.current.slice(-99), machinesRef.current]
+    setUndoDepth(history.current.length)
+  }, [])
+  const undo = useCallback(() => {
+    const previous = history.current.pop()
+    if (!previous) return
+    dragging.current = false
+    setUndoDepth(history.current.length)
+    setActiveMachines(previous)
+  }, [])
   const selectMachine = useCallback((id: string | null) => {
     setSelectedMachineId(id)
     setFocusRequest(null)
@@ -22,12 +39,15 @@ export function App() {
   }, [])
   const placeMachine = useCallback((componentType: FactoryComponentType, position: FloorPosition, options: PlaceOptions = {}) => {
     const machine: PlacedMachine = { id: crypto.randomUUID(), componentType, position, ...options }
+    checkpoint()
     setActiveMachines((machines) => mergeConveyors([...machines, machine]))
-  }, [])
+  }, [checkpoint])
   const moveMachine = useCallback((id: string, position: FloorPosition) => {
+    if (!dragging.current) { dragging.current = true; checkpoint() }
     setActiveMachines((machines) => machines.map((machine) => (machine.id === id ? { ...machine, position } : machine)))
-  }, [])
+  }, [checkpoint])
   const settleMachine = useCallback((id: string) => {
+    dragging.current = false
     setActiveMachines((machines) => mergeConveyors(machines, id))
   }, [])
   // A merge can absorb the selected belt's id.
@@ -35,9 +55,15 @@ export function App() {
     if (selectedMachineId && !activeMachines.some((m) => m.id === selectedMachineId)) setSelectedMachineId(null)
   }, [activeMachines, selectedMachineId])
   const resizeSelected = useCallback((length: number) => {
+    checkpoint()
     setActiveMachines((machines) => machines.map((machine) => (machine.id === selectedMachineId ? resizeConveyor(machine, machines, length) : machine)))
     settleMachine(selectedMachineId!)
-  }, [selectedMachineId, settleMachine])
+  }, [selectedMachineId, settleMachine, checkpoint])
+  const deleteSelected = useCallback(() => {
+    if (!selectedMachineId) return
+    checkpoint()
+    setActiveMachines((machines) => machines.filter((m) => m.id !== selectedMachineId))
+  }, [selectedMachineId, checkpoint])
   const fit = () => {
     setSelectedMachineId(null)
     setFocusRequest(null)
@@ -51,7 +77,18 @@ export function App() {
       onKeyDown={(event) => {
         if (event.key.toLowerCase() === 'r' && !event.repeat && !event.ctrlKey && !event.metaKey && !event.altKey) {
           if (editorMode.mode === 'placement') setPlacementRotation((turns) => (turns + 1) % 4)
-          else if (selectedMachineId) setActiveMachines((machines) => mergeConveyors(machines.map((m) => (m.id === selectedMachineId ? rotateMachine(m) : m)), selectedMachineId))
+          else if (selectedMachineId) {
+            checkpoint()
+            setActiveMachines((machines) => mergeConveyors(machines.map((m) => (m.id === selectedMachineId ? rotateMachine(m) : m)), selectedMachineId))
+          }
+        }
+        if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z') {
+          event.preventDefault()
+          undo()
+        }
+        if ((event.key === 'Delete' || event.key === 'Backspace') && selectedMachineId) {
+          event.preventDefault()
+          deleteSelected()
         }
         if (event.key === 'Escape') {
           if (editorMode.mode === 'placement') setEditorMode({ mode: 'navigate' })
@@ -59,6 +96,7 @@ export function App() {
         }
       }}
       onPointerDown={(event) => {
+        dragging.current = false // a new press starts a new undo step, even if the last drag was cut short
         if (event.target instanceof HTMLCanvasElement) event.target.focus()
       }}
       onContextMenu={(event) => {
@@ -77,6 +115,7 @@ export function App() {
         onPlace={placeMachine}
         onMove={moveMachine}
         onSettle={settleMachine}
+        onDelete={deleteSelected}
       />
 
       <ComponentSidebar
@@ -84,6 +123,10 @@ export function App() {
         machineCount={activeMachines.length}
         selectedConveyor={activeMachines.find((m) => m.id === selectedMachineId && m.componentType === 'conveyor-belt')}
         onResize={resizeSelected}
+        canDelete={selectedMachineId !== null}
+        onDelete={deleteSelected}
+        canUndo={undoDepth > 0}
+        onUndo={undo}
         onSelect={(componentType) => {
           setSelectedMachineId(null)
           setFocusRequest(null)
@@ -111,7 +154,7 @@ export function App() {
         </div>
         <p className="control-hints" id="viewport-help">
           {editorMode.mode === 'placement' && <span>Click to place; drag to lay a conveyor; R rotates</span>}
-          {editorMode.mode === 'navigate' && activeMachines.length > 0 && <span>Click to inspect; double-click to focus; drag a machine to move it; R rotates</span>}
+          {editorMode.mode === 'navigate' && activeMachines.length > 0 && <span>Click to inspect; double-click to focus; drag to move; R rotates; Delete removes; Ctrl/Cmd+Z undoes</span>}
           <span>Drag to move; Shift-drag to rotate</span>
           <span>Right-drag / arrows to pan</span>
           <span>Scroll / pinch to zoom</span>

@@ -133,7 +133,7 @@ function StrategyControls({ fitVersion, focusRequest, activeMachines }: {
   )
 }
 
-export function FactoryViewport({ fitVersion, placementType, placementRotation, activeMachines, selectedMachineId, focusRequest, onPlace, onMove, onSettle, onSelect, onFocus }: {
+export function FactoryViewport({ fitVersion, placementType, placementRotation, activeMachines, selectedMachineId, focusRequest, onPlace, onMove, onSettle, onDelete, onSelect, onFocus }: {
   fitVersion: number
   placementType: FactoryComponentType | null
   placementRotation: number
@@ -143,6 +143,7 @@ export function FactoryViewport({ fitVersion, placementType, placementRotation, 
   onPlace: (type: FactoryComponentType, position: FloorPosition, options?: PlaceOptions) => void
   onMove: (id: string, position: FloorPosition) => void
   onSettle: (id: string) => void
+  onDelete: () => void
   onSelect: (id: string | null) => void
   onFocus: (id: string) => void
 }) {
@@ -180,7 +181,7 @@ export function FactoryViewport({ fitVersion, placementType, placementRotation, 
       />
       <FactoryFloor />
       {activeMachines.map((machine) => (
-        <MachineMesh key={machine.id} machineId={machine.id} selected={selectedMachineId === machine.id} highlighted={run?.has(machine.id)} componentType={machine.componentType} position={machine.position} length={machine.length} rotation={machine.rotation} ports={connectedPorts(machine, activeMachines)} />
+        <MachineMesh key={machine.id} machineId={machine.id} selected={selectedMachineId === machine.id} highlighted={run?.has(machine.id)} onDelete={onDelete} componentType={machine.componentType} position={machine.position} length={machine.length} rotation={machine.rotation} ports={connectedPorts(machine, activeMachines)} />
       ))}
       {cornerTiles(activeMachines).map((tile) => (
         <CornerMesh key={tile.ids.join()} center={tile.center} from={tile.from} to={tile.to} highlighted={!!run?.has(tile.ids[0]) && !!run.has(tile.ids[1])} />
