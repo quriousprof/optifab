@@ -10,7 +10,7 @@ def test_greedy_produces_valid_schedule(reschedulable_ops, fixed_ops, scenario, 
     schedule = result["schedule"]
 
     assert len(schedule.operations) == 18
-    errors = validate_schedule(schedule, scenario, fixed_ops, get_duration)
+    errors = validate_schedule(schedule, scenario, fixed_ops, get_duration, is_recovery=True)
     assert errors == [], f"Greedy schedule invalid: {errors}"
     assert result["makespan"] > 0
 
@@ -20,7 +20,7 @@ def test_exhaustive_produces_valid_schedule(reschedulable_ops, fixed_ops, scenar
     schedule = result["schedule"]
 
     assert len(schedule.operations) == 18
-    errors = validate_schedule(schedule, scenario, fixed_ops, get_duration)
+    errors = validate_schedule(schedule, scenario, fixed_ops, get_duration, is_recovery=True)
     assert errors == [], f"Exhaustive schedule invalid: {errors}"
     assert result["makespan"] > 0
 

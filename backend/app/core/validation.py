@@ -27,8 +27,14 @@ def validate_schedule(
     scenario: dict,
     fixed_ops: list[FixedOperation],
     get_duration: callable,
+    is_recovery: bool = False,
 ) -> list[str]:
-    """Return a list of violation messages. Empty list means the schedule is valid."""
+    """Return a list of violation messages. Empty list means the schedule is valid.
+
+    Args:
+        is_recovery: If True, enforce post-failure rules (no F1 after t=6, fixed ops preserved).
+                     If False, only check structural rules (the baseline is valid pre-failure).
+    """
     errors: list[str] = []
     ops = schedule.operations
 
@@ -101,24 +107,26 @@ def validate_schedule(
                     f"and {b.operationId} [{b.start},{b.end})"
                 )
 
-    # 6. Fixed operations preserved
-    fixed_map = {f.operation_id: f for f in fixed_ops}
-    for op in ops:
-        if op.operationId in fixed_map:
-            f = fixed_map[op.operationId]
-            if (op.machineId != f.machine_id or op.start != f.start or op.end != f.end):
-                errors.append(
-                    f"{op.operationId}: fixed op changed from "
-                    f"{f.machine_id}[{f.start},{f.end}) to "
-                    f"{op.machineId}[{op.start},{op.end})"
-                )
+    # 6–7 only apply to recovery schedules (not the pre-failure baseline)
+    if is_recovery:
+        # 6. Fixed operations preserved
+        fixed_map = {f.operation_id: f for f in fixed_ops}
+        for op in ops:
+            if op.operationId in fixed_map:
+                f = fixed_map[op.operationId]
+                if (op.machineId != f.machine_id or op.start != f.start or op.end != f.end):
+                    errors.append(
+                        f"{op.operationId}: fixed op changed from "
+                        f"{f.machine_id}[{f.start},{f.end}) to "
+                        f"{op.machineId}[{op.start},{op.end})"
+                    )
 
-    # 7. No F1 assignment at or after failure time
-    for op in ops:
-        if op.machineId == FAILED_MACHINE and op.end > FAILURE_TIME:
-            errors.append(
-                f"{op.operationId}: assigned to {FAILED_MACHINE} "
-                f"[{op.start},{op.end}) which extends past failure time {FAILURE_TIME}"
-            )
+        # 7. No F1 assignment at or after failure time
+        for op in ops:
+            if op.machineId == FAILED_MACHINE and op.end > FAILURE_TIME:
+                errors.append(
+                    f"{op.operationId}: assigned to {FAILED_MACHINE} "
+                    f"[{op.start},{op.end}) which extends past failure time {FAILURE_TIME}"
+                )
 
     return errors
