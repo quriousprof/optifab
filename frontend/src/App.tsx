@@ -7,15 +7,29 @@ export function App() {
   const [fitVersion, setFitVersion] = useState(0)
   const [editorMode, setEditorMode] = useState<EditorMode>({ mode: 'navigate' })
   const [activeMachines, setActiveMachines] = useState<PlacedMachine[]>([])
+  const [selectedMachineId, setSelectedMachineId] = useState<string | null>(null)
+  const [focusRequest, setFocusRequest] = useState<{ machineId: string; version: number } | null>(null)
+  const selectMachine = useCallback((id: string | null) => {
+    setSelectedMachineId(id)
+    setFocusRequest(null)
+    if (id) setEditorMode({ mode: 'navigate' })
+  }, [])
+  const focusMachine = useCallback((machineId: string) => {
+    setFocusRequest((previous) => ({ machineId, version: (previous?.version ?? 0) + 1 }))
+  }, [])
   const placeMachine = useCallback((componentType: FactoryComponentType, position: FloorPosition) => {
     const machine: PlacedMachine = { id: crypto.randomUUID(), componentType, position }
     setActiveMachines((machines) => [...machines, machine])
   }, [])
-  const fit = () => setFitVersion((version) => version + 1)
+  const fit = () => {
+    setSelectedMachineId(null)
+    setFocusRequest(null)
+    setFitVersion((version) => version + 1)
+  }
 
   return (
     <main
-      className="factory-app"
+      className={`factory-app${selectedMachineId ? ' factory-app--inspecting' : ''}`}
       aria-label="Factory floor viewer"
       onKeyDown={(event) => {
         if (event.key === 'Escape') {
@@ -34,13 +48,21 @@ export function App() {
         fitVersion={fitVersion}
         placementType={editorMode.mode === 'placement' ? editorMode.componentType : null}
         activeMachines={activeMachines}
+        selectedMachineId={selectedMachineId}
+        focusRequest={focusRequest}
+        onSelect={selectMachine}
+        onFocus={focusMachine}
         onPlace={placeMachine}
       />
 
       <ComponentSidebar
         editorMode={editorMode}
         machineCount={activeMachines.length}
-        onSelect={(componentType) => setEditorMode({ mode: 'placement', componentType })}
+        onSelect={(componentType) => {
+          setSelectedMachineId(null)
+          setFocusRequest(null)
+          setEditorMode({ mode: 'placement', componentType })
+        }}
         onCancel={() => setEditorMode({ mode: 'navigate' })}
       />
 
@@ -63,6 +85,7 @@ export function App() {
         </div>
         <p className="control-hints" id="viewport-help">
           {editorMode.mode === 'placement' && <span>Click the floor to place</span>}
+          {editorMode.mode === 'navigate' && activeMachines.length > 0 && <span>Click to inspect; double-click to focus</span>}
           <span>Drag to move; Shift-drag to rotate</span>
           <span>Right-drag / arrows to pan</span>
           <span>Scroll / pinch to zoom</span>

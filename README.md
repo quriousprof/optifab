@@ -31,6 +31,8 @@ The Tailwind CSS sidebar selects **Conveyor Belt** (green box), **Assembly Robot
 
 Placement mode stays active for repeated clicks. Dragging, Shift-dragging, right-clicking, and interacting with overlays do not place machines. **Cancel selection** or **Escape** exits placement mode; Escape restores the overview when navigating. Placed machines have stable IDs, component types, and snapped positions in the React `activeMachines` array. They remain through camera changes and selection changes, and reset on page reload; persistence and overlap detection are not implemented.
 
+Click a placed machine to select it with a neon cyan bounding box and an HTML status card above it. The card shows demo values: **Operational** and **94% efficiency**. Double-click the same machine to smoothly move the camera and OrbitControls target toward its center while zooming in. Camera input interrupts the motion; reduced-motion settings apply the focus immediately. Clicking an existing machine exits placement mode without placing another object. Click empty space to deselect, or use **Fit view / Escape** to return to the overview.
+
 Run `npm run build` for type checking and a production build, then `npm run preview` to serve that build. The scene supports component layout prototyping; simulation state will be integrated against the shared contracts.
 
-Run `npm test` on Node.js 22.12+ for placement raycasting, integer snapping, floor boundaries, and click-versus-camera-drag checks.
+Run `npm test` on Node.js 22.12+ for placement raycasting, snapping, floor bounds, click-versus-drag checks, machine picking, double-click recognition, and camera focus/easing.

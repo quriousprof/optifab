@@ -1,10 +1,13 @@
 import { useEffect, useRef, type ComponentRef } from 'react'
-import { Canvas, useThree } from '@react-three/fiber'
+import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { Grid, OrbitControls } from '@react-three/drei'
 import { MOUSE, TOUCH, OrthographicCamera } from 'three'
 import { FLOOR_SIZE, type FactoryComponentType, type FloorPosition, type PlacedMachine } from './factoryComponents'
 import { MachineMesh } from './MachineMesh'
-import { PlacementPreview } from './PlacementPreview'
+import { SceneInteraction } from './SceneInteraction'
+import { advanceCameraFocus, getMachineFocus, type CameraFocus } from './machineInteraction'
+
+type FocusRequest = { machineId: string; version: number } | null
 
 const ISOMETRIC_POLAR_ANGLE = Math.acos(1 / Math.sqrt(3))
 const INITIAL_CAMERA = { position: [60, 60, 60] as [number, number, number], zoom: 10, near: 0.1, far: 10000 }
@@ -37,8 +40,13 @@ function FactoryFloor() {
   )
 }
 
-function StrategyControls({ fitVersion }: { fitVersion: number }) {
+function StrategyControls({ fitVersion, focusRequest, activeMachines }: {
+  fitVersion: number
+  focusRequest: FocusRequest
+  activeMachines: PlacedMachine[]
+}) {
   const controls = useRef<ComponentRef<typeof OrbitControls>>(null)
+  const animation = useRef<CameraFocus | null>(null)
   const camera = useThree((state) => state.camera)
   const gl = useThree((state) => state.gl)
   const size = useThree((state) => state.size)
@@ -49,12 +57,20 @@ function StrategyControls({ fitVersion }: { fitVersion: number }) {
     if (!orbit) return
 
     // Only the focused canvas receives arrow keys; toolbar buttons keep normal behavior.
+    const interrupt = (event: KeyboardEvent) => {
+      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.key)) animation.current = null
+    }
+    gl.domElement.addEventListener('keydown', interrupt)
     orbit.listenToKeyEvents(gl.domElement)
-    return () => orbit.stopListenToKeyEvents()
+    return () => {
+      gl.domElement.removeEventListener('keydown', interrupt)
+      orbit.stopListenToKeyEvents()
+    }
   }, [gl])
 
   useEffect(() => {
     if (!(camera instanceof OrthographicCamera) || !controls.current) return
+    animation.current = null
 
     // Derive framing from the floor size so larger layouts still fit the overview.
     const projectedWidth = FLOOR_SIZE * Math.SQRT2
@@ -68,10 +84,34 @@ function StrategyControls({ fitVersion }: { fitVersion: number }) {
     invalidate()
   }, [camera, size.width, size.height, fitVersion, invalidate])
 
+  useEffect(() => {
+    animation.current = null
+    const machine = activeMachines.find((item) => item.id === focusRequest?.machineId)
+    if (!machine || !(camera instanceof OrthographicCamera) || !controls.current) return
+    const goal = getMachineFocus(machine, camera, controls.current.target, size.width, size.height)
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      camera.position.copy(goal.position)
+      camera.zoom = goal.zoom
+      camera.updateProjectionMatrix()
+      controls.current.target.copy(goal.target)
+      controls.current.update()
+    } else animation.current = goal
+    invalidate()
+  }, [focusRequest, activeMachines, camera, size.width, size.height, invalidate])
+
+  useFrame((_, delta) => {
+    if (!animation.current || !(camera instanceof OrthographicCamera) || !controls.current) return
+    const complete = advanceCameraFocus(camera, controls.current.target, animation.current, delta)
+    controls.current.update()
+    if (complete) animation.current = null
+    else invalidate()
+  })
+
   return (
     <OrbitControls
       ref={controls}
       makeDefault
+      onStart={() => { animation.current = null }}
       domElement={gl.domElement}
       enableRotate
       minPolarAngle={ISOMETRIC_POLAR_ANGLE}
@@ -92,16 +132,20 @@ function StrategyControls({ fitVersion }: { fitVersion: number }) {
   )
 }
 
-export function FactoryViewport({ fitVersion, placementType, activeMachines, onPlace }: {
+export function FactoryViewport({ fitVersion, placementType, activeMachines, selectedMachineId, focusRequest, onPlace, onSelect, onFocus }: {
   fitVersion: number
   placementType: FactoryComponentType | null
   activeMachines: PlacedMachine[]
+  selectedMachineId: string | null
+  focusRequest: FocusRequest
   onPlace: (type: FactoryComponentType, position: FloorPosition) => void
+  onSelect: (id: string | null) => void
+  onFocus: (id: string) => void
 }) {
   return (
     <Canvas
       className={`factory-canvas${placementType ? ' factory-canvas--placement' : ''}`}
-      aria-label="Factory floor. Select a component, then click the floor to place it. Drag to move. Shift-drag to rotate. Scroll or pinch to zoom. Escape cancels placement mode or restores the overview."
+      aria-label="Factory floor. Click a machine to inspect; double-click to focus. Select a component, then click the floor to place it. Drag to move. Shift-drag to rotate. Scroll or pinch to zoom. Escape cancels placement mode or restores the overview."
       orthographic
       shadows
       frameloop="demand"
@@ -110,7 +154,7 @@ export function FactoryViewport({ fitVersion, placementType, activeMachines, onP
       gl={{ antialias: true }}
       onCreated={({ gl }) => {
         gl.domElement.tabIndex = 0
-        gl.domElement.setAttribute('aria-label', 'Factory floor canvas. Select a component, then click the floor to place it. Drag to move. Shift-drag to rotate. Right-drag or use arrow keys to pan. Scroll or pinch to zoom. Escape cancels placement mode or restores the overview.')
+        gl.domElement.setAttribute('aria-label', 'Factory floor canvas. Click a machine to inspect; double-click to focus. Select a component, then click the floor to place it. Drag to move. Shift-drag to rotate. Right-drag or use arrow keys to pan. Scroll or pinch to zoom. Escape cancels placement mode or restores the overview.')
       }}
       fallback={<div className="viewport-fallback">This viewport needs WebGL. Enable graphics acceleration in your browser, then reload.</div>}
     >
@@ -131,14 +175,14 @@ export function FactoryViewport({ fitVersion, placementType, activeMachines, onP
       />
       <FactoryFloor />
       {activeMachines.map((machine) => (
-        <MachineMesh key={machine.id} componentType={machine.componentType} position={machine.position} />
+        <MachineMesh key={machine.id} machineId={machine.id} selected={selectedMachineId === machine.id} componentType={machine.componentType} position={machine.position} />
       ))}
-      {placementType && <PlacementPreview key={placementType} componentType={placementType} onPlace={onPlace} />}
+      <SceneInteraction componentType={placementType} onPlace={onPlace} onSelect={onSelect} onFocus={onFocus} />
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.62, 0]} receiveShadow>
         <planeGeometry args={[10000, 10000]} />
         <shadowMaterial transparent opacity={0.12} />
       </mesh>
-      <StrategyControls fitVersion={fitVersion} />
+      <StrategyControls fitVersion={fitVersion} focusRequest={focusRequest} activeMachines={activeMachines} />
     </Canvas>
   )
 }
