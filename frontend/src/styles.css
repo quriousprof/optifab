@@ -1,3 +1,5 @@
+@import 'tailwindcss';
+
 :root {
   font-family: 'Avenir Next', Avenir, 'Segoe UI', sans-serif;
   color: #263844;
@@ -9,7 +11,6 @@
 
 * { box-sizing: border-box; }
 body { margin: 0; }
-button { font: inherit; }
 
 .factory-app {
   width: 100%;
@@ -22,6 +23,8 @@ button { font: inherit; }
 .factory-app canvas { touch-action: none; }
 .factory-canvas canvas { cursor: grab; }
 .factory-canvas canvas:active { cursor: grabbing; }
+.factory-canvas--placement canvas,
+.factory-canvas--placement canvas:active { cursor: crosshair; }
 .factory-canvas:focus-visible { outline: 2px solid #28649b; outline-offset: -4px; }
 .factory-app canvas:focus-visible { outline: 2px solid #28649b; outline-offset: -4px; }
 

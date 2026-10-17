@@ -1,8 +1,11 @@
 import { useState } from 'react'
 import { FactoryViewport, FLOOR_SIZE } from './FactoryViewport'
+import { ComponentSidebar } from './ComponentSidebar'
+import type { EditorMode } from './factoryComponents'
 
 export function App() {
   const [fitVersion, setFitVersion] = useState(0)
+  const [editorMode, setEditorMode] = useState<EditorMode>({ mode: 'navigate' })
   const fit = () => setFitVersion((version) => version + 1)
 
   return (
@@ -10,7 +13,10 @@ export function App() {
       className="factory-app"
       aria-label="Factory floor viewer"
       onKeyDown={(event) => {
-        if (event.key === 'Escape') fit()
+        if (event.key === 'Escape') {
+          if (editorMode.mode === 'placement') setEditorMode({ mode: 'navigate' })
+          else fit()
+        }
       }}
       onPointerDown={(event) => {
         if (event.target instanceof HTMLCanvasElement) event.target.focus()
@@ -19,7 +25,13 @@ export function App() {
         if (event.target instanceof HTMLCanvasElement) event.preventDefault()
       }}
     >
-      <FactoryViewport fitVersion={fitVersion} />
+      <FactoryViewport fitVersion={fitVersion} isPlacing={editorMode.mode === 'placement'} />
+
+      <ComponentSidebar
+        editorMode={editorMode}
+        onSelect={(componentType) => setEditorMode({ mode: 'placement', componentType })}
+        onCancel={() => setEditorMode({ mode: 'navigate' })}
+      />
 
       <header className="viewport-header">
         <div className="identity">

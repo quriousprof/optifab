@@ -14,19 +14,9 @@ function FactoryFloor() {
         <boxGeometry args={[FLOOR_SIZE, 0.6, FLOOR_SIZE]} />
         <meshStandardMaterial color="#a6adb2" roughness={0.92} />
       </mesh>
-      {/* Keep the floor grid defined, independent of the lighter surrounding grid. */}
-      <Grid
-        args={[FLOOR_SIZE, FLOOR_SIZE]}
-        position={[0, 0.02, 0]}
-        cellSize={1}
-        cellThickness={0.65}
-        cellColor="#8d989f"
-        sectionSize={5}
-        sectionThickness={1.1}
-        sectionColor="#77838b"
-        fadeDistance={10000}
-        fadeStrength={1}
-      />
+      {/* Lift coordinate lines above the floor to prevent z-fighting. */}
+      <gridHelper args={[FLOOR_SIZE, FLOOR_SIZE, '#647888', '#8d989f']} position={[0, 0.02, 0]} />
+      <gridHelper args={[FLOOR_SIZE, FLOOR_SIZE / 5, '#647888', '#77838b']} position={[0, 0.025, 0]} />
       <Grid
         args={[2, 2]}
         position={[0, -0.61, 0]}
@@ -100,11 +90,11 @@ function StrategyControls({ fitVersion }: { fitVersion: number }) {
   )
 }
 
-export function FactoryViewport({ fitVersion }: { fitVersion: number }) {
+export function FactoryViewport({ fitVersion, isPlacing }: { fitVersion: number; isPlacing: boolean }) {
   return (
     <Canvas
-      className="factory-canvas"
-      aria-label="Factory floor. Drag to move. Shift-drag to rotate. Right-drag or use arrow keys to pan. Scroll or pinch to zoom. Escape restores the overview."
+      className={`factory-canvas${isPlacing ? ' factory-canvas--placement' : ''}`}
+      aria-label="Factory floor. Drag to move. Shift-drag to rotate. Right-drag or use arrow keys to pan. Scroll or pinch to zoom. Escape cancels placement mode or restores the overview."
       orthographic
       shadows
       frameloop="demand"
@@ -113,7 +103,7 @@ export function FactoryViewport({ fitVersion }: { fitVersion: number }) {
       gl={{ antialias: true }}
       onCreated={({ gl }) => {
         gl.domElement.tabIndex = 0
-        gl.domElement.setAttribute('aria-label', 'Factory floor canvas. Drag to move. Shift-drag to rotate. Right-drag or use arrow keys to pan. Scroll or pinch to zoom. Escape restores the overview.')
+        gl.domElement.setAttribute('aria-label', 'Factory floor canvas. Drag to move. Shift-drag to rotate. Right-drag or use arrow keys to pan. Scroll or pinch to zoom. Escape cancels placement mode or restores the overview.')
       }}
       fallback={<div className="viewport-fallback">This viewport needs WebGL. Enable graphics acceleration in your browser, then reload.</div>}
     >
