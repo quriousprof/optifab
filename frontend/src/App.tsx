@@ -21,6 +21,9 @@ export function App() {
     const machine: PlacedMachine = { id: crypto.randomUUID(), componentType, position }
     setActiveMachines((machines) => [...machines, machine])
   }, [])
+  const moveMachine = useCallback((id: string, position: FloorPosition) => {
+    setActiveMachines((machines) => machines.map((machine) => (machine.id === id ? { ...machine, position } : machine)))
+  }, [])
   const fit = () => {
     setSelectedMachineId(null)
     setFocusRequest(null)
@@ -53,6 +56,7 @@ export function App() {
         onSelect={selectMachine}
         onFocus={focusMachine}
         onPlace={placeMachine}
+        onMove={moveMachine}
       />
 
       <ComponentSidebar
@@ -85,7 +89,7 @@ export function App() {
         </div>
         <p className="control-hints" id="viewport-help">
           {editorMode.mode === 'placement' && <span>Click the floor to place</span>}
-          {editorMode.mode === 'navigate' && activeMachines.length > 0 && <span>Click to inspect; double-click to focus</span>}
+          {editorMode.mode === 'navigate' && activeMachines.length > 0 && <span>Click to inspect; double-click to focus; drag a machine to move it</span>}
           <span>Drag to move; Shift-drag to rotate</span>
           <span>Right-drag / arrows to pan</span>
           <span>Scroll / pinch to zoom</span>

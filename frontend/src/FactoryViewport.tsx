@@ -132,13 +132,14 @@ function StrategyControls({ fitVersion, focusRequest, activeMachines }: {
   )
 }
 
-export function FactoryViewport({ fitVersion, placementType, activeMachines, selectedMachineId, focusRequest, onPlace, onSelect, onFocus }: {
+export function FactoryViewport({ fitVersion, placementType, activeMachines, selectedMachineId, focusRequest, onPlace, onMove, onSelect, onFocus }: {
   fitVersion: number
   placementType: FactoryComponentType | null
   activeMachines: PlacedMachine[]
   selectedMachineId: string | null
   focusRequest: FocusRequest
   onPlace: (type: FactoryComponentType, position: FloorPosition) => void
+  onMove: (id: string, position: FloorPosition) => void
   onSelect: (id: string | null) => void
   onFocus: (id: string) => void
 }) {
@@ -177,7 +178,7 @@ export function FactoryViewport({ fitVersion, placementType, activeMachines, sel
       {activeMachines.map((machine) => (
         <MachineMesh key={machine.id} machineId={machine.id} selected={selectedMachineId === machine.id} componentType={machine.componentType} position={machine.position} />
       ))}
-      <SceneInteraction componentType={placementType} onPlace={onPlace} onSelect={onSelect} onFocus={onFocus} />
+      <SceneInteraction componentType={placementType} machines={activeMachines} onPlace={onPlace} onMove={onMove} onSelect={onSelect} onFocus={onFocus} />
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.62, 0]} receiveShadow>
         <planeGeometry args={[10000, 10000]} />
         <shadowMaterial transparent opacity={0.12} />

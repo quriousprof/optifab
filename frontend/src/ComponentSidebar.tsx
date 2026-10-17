@@ -50,6 +50,13 @@ export function ComponentSidebar({ editorMode, machineCount, onSelect, onCancel 
               type="button"
               aria-pressed={active}
               onClick={() => onSelect(component.type)}
+              draggable
+              onDragStart={(event) => {
+                event.dataTransfer.setData('text/plain', component.type) // Firefox needs data to start a drag
+                event.dataTransfer.effectAllowed = 'copy'
+                onSelect(component.type)
+              }}
+              onDragEnd={onCancel}
               className="group flex min-h-[76px] w-full cursor-pointer items-center gap-3 rounded-lg border border-transparent p-2 text-left hover:border-[#b3c0ca] hover:bg-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#28649b] aria-pressed:border-[#28649b] aria-pressed:bg-[#e7eff6] max-sm:gap-2"
             >
               <ComponentShape component={component} />

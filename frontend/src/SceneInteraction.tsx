@@ -2,12 +2,14 @@ import { useEffect, useRef, useState } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
 import { Raycaster, Vector2 } from 'three'
 import { MachineMesh } from './MachineMesh'
-import type { FactoryComponentType, FloorPosition } from './factoryComponents'
+import type { FactoryComponentType, FloorPosition, PlacedMachine } from './factoryComponents'
 import { getSnappedFloorPosition, isPlacementClick, isPlacementPointer, trackPlacementDrag, type PlacementGesture } from './placement'
 import { isDoubleMachineClick, pickMachine, type MachineClick } from './machineInteraction'
 
-export function SceneInteraction({ componentType, onPlace, onSelect, onFocus }: {
+export function SceneInteraction({ componentType, machines, onPlace, onMove, onSelect, onFocus }: {
   componentType: FactoryComponentType | null
+  machines: PlacedMachine[]
+  onMove: (id: string, position: FloorPosition) => void
   onPlace: (type: FactoryComponentType, position: FloorPosition) => void
   onSelect: (id: string | null) => void
   onFocus: (id: string) => void
@@ -20,6 +22,10 @@ export function SceneInteraction({ componentType, onPlace, onSelect, onFocus }: 
   const pointer = useRef<Vector2 | null>(null)
   const gesture = useRef<PlacementGesture | null>(null)
   const lastClick = useRef<MachineClick | null>(null)
+  const controls = useThree((state) => state.controls) as { enabled: boolean } | null
+  const machinesRef = useRef(machines)
+  machinesRef.current = machines
+  const moving = useRef<string | null>(null)
   const [position, setPosition] = useState<FloorPosition | null>(null)
 
   useEffect(() => {
@@ -33,12 +39,26 @@ export function SceneInteraction({ componentType, onPlace, onSelect, onFocus }: 
       )
       invalidate()
     }
+    const stopMoving = () => {
+      moving.current = null
+      if (controls) controls.enabled = true
+    }
     const clear = () => {
+      stopMoving()
       pointer.current = null
       gesture.current = null
       lastClick.current = null
       setPosition(null)
       invalidate()
+    }
+    // Capture phase on window so OrbitControls never starts panning when the press lands on a machine.
+    const grab = (event: PointerEvent) => {
+      if (event.target !== canvas || componentType || !isPlacementPointer(event) || !controls) return
+      updatePointer(event)
+      camera.updateMatrixWorld()
+      raycaster.current.setFromCamera(pointer.current!, camera)
+      moving.current = pickMachine(raycaster.current, scene)
+      if (moving.current) controls.enabled = false
     }
     const down = (event: PointerEvent) => {
       updatePointer(event)
@@ -49,8 +69,16 @@ export function SceneInteraction({ componentType, onPlace, onSelect, onFocus }: 
     const move = (event: PointerEvent) => {
       if (gesture.current) trackPlacementDrag(gesture.current, event)
       updatePointer(event)
+      const machine = machinesRef.current.find((item) => item.id === moving.current)
+      if (machine && gesture.current?.dragged) {
+        camera.updateMatrixWorld()
+        raycaster.current.setFromCamera(pointer.current!, camera)
+        const next = getSnappedFloorPosition(raycaster.current, machine.componentType)
+        if (next && (next[0] !== machine.position[0] || next[2] !== machine.position[2])) onMove(machine.id, next)
+      }
     }
     const up = (event: PointerEvent) => {
+      stopMoving()
       const canPlace = isPlacementClick(gesture.current, event)
       gesture.current = null
       if (!canPlace) {
@@ -82,6 +110,26 @@ export function SceneInteraction({ componentType, onPlace, onSelect, onFocus }: 
       if (snapped) onPlace(componentType, snapped)
     }
 
+    // Sidebar drag-and-drop: pointer events are suppressed during a drag, so track dragover instead.
+    const dragOver = (event: DragEvent) => {
+      event.preventDefault()
+      updatePointer(event as unknown as PointerEvent)
+    }
+    const drop = (event: DragEvent) => {
+      event.preventDefault()
+      if (!componentType) return
+      updatePointer(event as unknown as PointerEvent)
+      camera.updateMatrixWorld()
+      raycaster.current.setFromCamera(pointer.current!, camera)
+      const snapped = getSnappedFloorPosition(raycaster.current, componentType)
+      if (snapped) onPlace(componentType, snapped)
+      setPosition(null)
+    }
+
+    window.addEventListener('pointerdown', grab, true)
+    canvas.addEventListener('dragover', dragOver)
+    canvas.addEventListener('drop', drop)
+    canvas.addEventListener('dragleave', clear)
     canvas.addEventListener('pointermove', move)
     canvas.addEventListener('pointerdown', down)
     canvas.addEventListener('pointerup', up)
@@ -89,6 +137,10 @@ export function SceneInteraction({ componentType, onPlace, onSelect, onFocus }: 
     canvas.addEventListener('pointercancel', clear)
     window.addEventListener('blur', clear)
     return () => {
+      window.removeEventListener('pointerdown', grab, true)
+      canvas.removeEventListener('dragover', dragOver)
+      canvas.removeEventListener('drop', drop)
+      canvas.removeEventListener('dragleave', clear)
       canvas.removeEventListener('pointermove', move)
       canvas.removeEventListener('pointerdown', down)
       canvas.removeEventListener('pointerup', up)
@@ -96,7 +148,7 @@ export function SceneInteraction({ componentType, onPlace, onSelect, onFocus }: 
       canvas.removeEventListener('pointercancel', clear)
       window.removeEventListener('blur', clear)
     }
-  }, [camera, gl, invalidate, scene, componentType, onPlace, onSelect, onFocus])
+  }, [camera, gl, invalidate, scene, componentType, controls, onPlace, onMove, onSelect, onFocus])
 
   useFrame(() => {
     if (!pointer.current || !componentType) return
