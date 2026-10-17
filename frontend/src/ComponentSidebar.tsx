@@ -23,8 +23,9 @@ function ComponentShape({ component }: { component: FactoryComponent }) {
   )
 }
 
-export function ComponentSidebar({ editorMode, onSelect, onCancel }: {
+export function ComponentSidebar({ editorMode, machineCount, onSelect, onCancel }: {
   editorMode: EditorMode
+  machineCount: number
   onSelect: (type: FactoryComponentType) => void
   onCancel: () => void
 }) {
@@ -70,8 +71,10 @@ export function ComponentSidebar({ editorMode, onSelect, onCancel }: {
             <>
               <p className="font-semibold text-[#28649b]">Placement mode</p>
               <p>{selected.name} selected.</p>
+              <p className="mt-1">Move over the floor to preview. Click to place; keep the preview inside the floor.</p>
             </>
           ) : <p>Select a component to enter placement mode.</p>}
+          <p className="mt-2">{machineCount} {machineCount === 1 ? 'machine' : 'machines'} placed</p>
         </div>
         {selected && (
           <button

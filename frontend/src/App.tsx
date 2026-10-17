@@ -1,11 +1,16 @@
-import { useState } from 'react'
-import { FactoryViewport, FLOOR_SIZE } from './FactoryViewport'
+import { useCallback, useState } from 'react'
+import { FactoryViewport } from './FactoryViewport'
 import { ComponentSidebar } from './ComponentSidebar'
-import type { EditorMode } from './factoryComponents'
+import { FLOOR_SIZE, type EditorMode, type FactoryComponentType, type FloorPosition, type PlacedMachine } from './factoryComponents'
 
 export function App() {
   const [fitVersion, setFitVersion] = useState(0)
   const [editorMode, setEditorMode] = useState<EditorMode>({ mode: 'navigate' })
+  const [activeMachines, setActiveMachines] = useState<PlacedMachine[]>([])
+  const placeMachine = useCallback((componentType: FactoryComponentType, position: FloorPosition) => {
+    const machine: PlacedMachine = { id: crypto.randomUUID(), componentType, position }
+    setActiveMachines((machines) => [...machines, machine])
+  }, [])
   const fit = () => setFitVersion((version) => version + 1)
 
   return (
@@ -25,10 +30,16 @@ export function App() {
         if (event.target instanceof HTMLCanvasElement) event.preventDefault()
       }}
     >
-      <FactoryViewport fitVersion={fitVersion} isPlacing={editorMode.mode === 'placement'} />
+      <FactoryViewport
+        fitVersion={fitVersion}
+        placementType={editorMode.mode === 'placement' ? editorMode.componentType : null}
+        activeMachines={activeMachines}
+        onPlace={placeMachine}
+      />
 
       <ComponentSidebar
         editorMode={editorMode}
+        machineCount={activeMachines.length}
         onSelect={(componentType) => setEditorMode({ mode: 'placement', componentType })}
         onCancel={() => setEditorMode({ mode: 'navigate' })}
       />
@@ -51,6 +62,7 @@ export function App() {
           <span className="grid-caption">Grid spacing: 1 unit</span>
         </div>
         <p className="control-hints" id="viewport-help">
+          {editorMode.mode === 'placement' && <span>Click the floor to place</span>}
           <span>Drag to move; Shift-drag to rotate</span>
           <span>Right-drag / arrows to pan</span>
           <span>Scroll / pinch to zoom</span>

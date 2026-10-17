@@ -2,8 +2,10 @@ import { useEffect, useRef, type ComponentRef } from 'react'
 import { Canvas, useThree } from '@react-three/fiber'
 import { Grid, OrbitControls } from '@react-three/drei'
 import { MOUSE, TOUCH, OrthographicCamera } from 'three'
+import { FLOOR_SIZE, type FactoryComponentType, type FloorPosition, type PlacedMachine } from './factoryComponents'
+import { MachineMesh } from './MachineMesh'
+import { PlacementPreview } from './PlacementPreview'
 
-export const FLOOR_SIZE = 100
 const ISOMETRIC_POLAR_ANGLE = Math.acos(1 / Math.sqrt(3))
 const INITIAL_CAMERA = { position: [60, 60, 60] as [number, number, number], zoom: 10, near: 0.1, far: 10000 }
 
@@ -90,11 +92,16 @@ function StrategyControls({ fitVersion }: { fitVersion: number }) {
   )
 }
 
-export function FactoryViewport({ fitVersion, isPlacing }: { fitVersion: number; isPlacing: boolean }) {
+export function FactoryViewport({ fitVersion, placementType, activeMachines, onPlace }: {
+  fitVersion: number
+  placementType: FactoryComponentType | null
+  activeMachines: PlacedMachine[]
+  onPlace: (type: FactoryComponentType, position: FloorPosition) => void
+}) {
   return (
     <Canvas
-      className={`factory-canvas${isPlacing ? ' factory-canvas--placement' : ''}`}
-      aria-label="Factory floor. Drag to move. Shift-drag to rotate. Right-drag or use arrow keys to pan. Scroll or pinch to zoom. Escape cancels placement mode or restores the overview."
+      className={`factory-canvas${placementType ? ' factory-canvas--placement' : ''}`}
+      aria-label="Factory floor. Select a component, then click the floor to place it. Drag to move. Shift-drag to rotate. Scroll or pinch to zoom. Escape cancels placement mode or restores the overview."
       orthographic
       shadows
       frameloop="demand"
@@ -103,7 +110,7 @@ export function FactoryViewport({ fitVersion, isPlacing }: { fitVersion: number;
       gl={{ antialias: true }}
       onCreated={({ gl }) => {
         gl.domElement.tabIndex = 0
-        gl.domElement.setAttribute('aria-label', 'Factory floor canvas. Drag to move. Shift-drag to rotate. Right-drag or use arrow keys to pan. Scroll or pinch to zoom. Escape cancels placement mode or restores the overview.')
+        gl.domElement.setAttribute('aria-label', 'Factory floor canvas. Select a component, then click the floor to place it. Drag to move. Shift-drag to rotate. Right-drag or use arrow keys to pan. Scroll or pinch to zoom. Escape cancels placement mode or restores the overview.')
       }}
       fallback={<div className="viewport-fallback">This viewport needs WebGL. Enable graphics acceleration in your browser, then reload.</div>}
     >
@@ -123,6 +130,10 @@ export function FactoryViewport({ fitVersion, isPlacing }: { fitVersion: number;
         shadow-normalBias={0.04}
       />
       <FactoryFloor />
+      {activeMachines.map((machine) => (
+        <MachineMesh key={machine.id} componentType={machine.componentType} position={machine.position} />
+      ))}
+      {placementType && <PlacementPreview key={placementType} componentType={placementType} onPlace={onPlace} />}
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.62, 0]} receiveShadow>
         <planeGeometry args={[10000, 10000]} />
         <shadowMaterial transparent opacity={0.12} />

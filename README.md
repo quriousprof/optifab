@@ -27,6 +27,10 @@ Open http://localhost:3000. The full-screen viewport uses React Three Fiber, Dre
 
 Left-drag to move the view freely; Shift-drag to rotate at a fixed isometric tilt. Right-drag or use the arrow keys after focusing the canvas to pan along the floor. Scroll/pinch to zoom; use **Fit view** or **Escape** to restore the original angle and overview. Touch supports one-finger pan and two-finger pinch/pan.
 
-The Tailwind CSS sidebar selects **Conveyor Belt** (green box), **Assembly Robot** (red cylinder), or **CNC Milling Machine** (blue box). Selection sets the app's typed placement mode and component type, highlights the button, and changes the viewport cursor. **Cancel selection** or **Escape** exits placement mode; Escape restores the overview when navigating. This step prepares selection state; clicking the floor does not create objects yet. The floor's `gridHelper` lines mark one-unit cells and five-unit sections above the surface.
+The Tailwind CSS sidebar selects **Conveyor Belt** (green box), **Assembly Robot** (red cylinder), or **CNC Milling Machine** (blue box). Move over the floor to see a translucent preview, then left-click to place a solid machine. Three.js raycasting intersects the floor at `y = 0`; `Math.round` snaps X and Z to the one-unit grid. The entire machine footprint stays inside the 100 × 100 floor. The floor's `gridHelper` lines mark one-unit cells and five-unit sections above the surface.
 
-Run `npm run build` for type checking and a production build, then `npm run preview` to serve that build. This first scene establishes the viewport; machines and simulation state will be added against the shared contracts.
+Placement mode stays active for repeated clicks. Dragging, Shift-dragging, right-clicking, and interacting with overlays do not place machines. **Cancel selection** or **Escape** exits placement mode; Escape restores the overview when navigating. Placed machines have stable IDs, component types, and snapped positions in the React `activeMachines` array. They remain through camera changes and selection changes, and reset on page reload; persistence and overlap detection are not implemented.
+
+Run `npm run build` for type checking and a production build, then `npm run preview` to serve that build. The scene supports component layout prototyping; simulation state will be integrated against the shared contracts.
+
+Run `npm test` on Node.js 22.12+ for placement raycasting, integer snapping, floor boundaries, and click-versus-camera-drag checks.
