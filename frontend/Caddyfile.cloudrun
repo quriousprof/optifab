@@ -1,12 +1,14 @@
 :{$PORT:8080} {
-	root * /srv
-	file_server
-	try_files {path} /index.html
-	encode gzip
-
-	header /assets/* Cache-Control "public, max-age=31536000, immutable"
-
 	handle /api/* {
 		reverse_proxy {$BACKEND_URL}
+	}
+
+	handle {
+		root * /srv
+		try_files {path} /index.html
+		file_server
+		encode gzip
+
+		header /assets/* Cache-Control "public, max-age=31536000, immutable"
 	}
 }
