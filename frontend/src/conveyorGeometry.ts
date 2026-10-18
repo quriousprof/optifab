@@ -50,3 +50,35 @@ export function sweepBelt(path: BeltPath, from: number, to: number, width: numbe
   geometry.computeVertexNormals()
   return geometry
 }
+
+export function rampHeight(fromHeight: number, toHeight: number, x: number): number {
+  const t = Math.max(0, Math.min(1, (x + 1) / 2))
+  return fromHeight + (toHeight - fromHeight) * t * t * (3 - 2 * t)
+}
+
+/** A conveyor strip whose height eases into both flat support surfaces. */
+export function sweepRamp(fromHeight: number, toHeight: number, width: number, bottom: number, top: number, offset = 0): BufferGeometry {
+  const segments = 20
+  const vertices: number[] = []
+  const indices: number[] = []
+  for (let index = 0; index <= segments; index++) {
+    const x = -1 + 2 * index / segments
+    const y = rampHeight(fromHeight, toHeight, x)
+    const left = offset - width / 2, right = offset + width / 2
+    vertices.push(x, y + top, left, x, y + top, right, x, y + bottom, left, x, y + bottom, right)
+    if (index === segments) continue
+    const a = index * 4, b = a + 4
+    indices.push(a, a + 1, b, b, a + 1, b + 1,
+      a + 2, b + 2, a + 3, b + 2, b + 3, a + 3,
+      a, b, a + 2, b, b + 2, a + 2,
+      a + 1, a + 3, b + 1, b + 1, a + 3, b + 3)
+  }
+  indices.push(0, 2, 1, 1, 2, 3)
+  const end = segments * 4
+  indices.push(end, end + 1, end + 2, end + 1, end + 3, end + 2)
+  const geometry = new BufferGeometry()
+  geometry.setAttribute('position', new Float32BufferAttribute(vertices, 3))
+  geometry.setIndex(indices)
+  geometry.computeVertexNormals()
+  return geometry
+}

@@ -1,42 +1,80 @@
-import { alignMerges, layDirectionalConveyorRun, mergeConveyors } from './connections.ts'
-import type { FactoryComponentType, PlacedMachine } from './factoryComponents.ts'
+import type { FloorSize, PlacedMachine } from './factoryComponents.ts'
 
-// Six-job scenario on the 3D grid: dock -> 4 cutting -> 3 forming -> 2 inspection -> dock.
-// Spacing is wider than docs/six-job-scenario.json because the machine models are 6 x 4 units.
-const COLUMN_X = { raw: -27, cutting: -15, forming: 0, inspection: 15, finished: 27 }
-const MACHINE_HALF_WIDTH = 3 // machines and docks are 6 units long; ports sit at x ± 3
+// Default six-job scenario: raw dock -> 4 cutting -> 3 forming -> 2 inspection -> finished dock.
+// Each stage sits on its own workstation platform; labels match the backend machine IDs.
+export const PRESET_FLOOR: FloorSize = { width: 130, depth: 150 }
 
-type Node = { key: string; type: FactoryComponentType; label?: string; x: number; z: number }
+const PRESET: PlacedMachine[] = [{"id":"8394885a-a763-4558-b2f1-ad87af829e19","rotation":1,"breadth":30,"length":12,"position":[0,0,69],"componentType":"raw-material"},
+  {"id":"b93c7f6a-d5b7-4bab-9284-8f75fe314173","rotation":2,"breadth":14,"length":40,"position":[0,0,42],"componentType":"workstation"},
+  {"id":"c9f5f4e0-d3a0-44ed-acce-e7f84f0d2675","rotation":2,"breadth":14,"length":40,"position":[0,0,0],"componentType":"workstation"},
+  {"id":"7fc790ea-abb7-4ade-9cdf-6b6537476fec","rotation":2,"breadth":14,"length":40,"position":[0,0,-42],"componentType":"workstation"},
+  {"id":"ddc1dc01-09ac-4705-bde2-faead045be0b","rotation":1,"breadth":30,"length":10,"position":[0,0,-70],"componentType":"finished-goods"},
+  {"label":"C1","breadth":4,"position":[-15,0,42],"workstationId":"b93c7f6a-d5b7-4bab-9284-8f75fe314173","rotation":1,"id":"4a9b1337-431c-44ff-9821-14af120978fe","length":6,"componentType":"cutting-machine"},
+  {"label":"C2","breadth":4,"position":[-5,0,42],"workstationId":"b93c7f6a-d5b7-4bab-9284-8f75fe314173","rotation":1,"id":"eced9793-be7e-4ad3-8e46-84ade33d1cee","length":6,"componentType":"cutting-machine"},
+  {"label":"C3","breadth":4,"position":[5,0,42],"workstationId":"b93c7f6a-d5b7-4bab-9284-8f75fe314173","rotation":1,"id":"fd8c708f-be49-48fc-8b78-7ebcd64374ae","length":6,"componentType":"cutting-machine"},
+  {"label":"C4","breadth":4,"position":[15,0,42],"workstationId":"b93c7f6a-d5b7-4bab-9284-8f75fe314173","rotation":1,"id":"9405a81b-f04f-4526-bc5d-6f0d3a9b3cae","length":6,"componentType":"cutting-machine"},
+  {"label":"F2","breadth":4,"position":[0,0,0],"workstationId":"c9f5f4e0-d3a0-44ed-acce-e7f84f0d2675","rotation":1,"id":"d4c5460f-e0b5-46e3-9034-66553f1ca171","length":6,"componentType":"forming-machine"},
+  {"label":"F3","breadth":4,"position":[12,0,0],"workstationId":"c9f5f4e0-d3a0-44ed-acce-e7f84f0d2675","rotation":1,"id":"c563fe43-d2fc-4c83-bde5-099ba2abcaca","length":6,"componentType":"forming-machine"},
+  {"label":"F1","breadth":4,"position":[-12,0,0],"workstationId":"c9f5f4e0-d3a0-44ed-acce-e7f84f0d2675","rotation":1,"id":"40bb3cb8-7956-45d9-a91d-ef965fa47a5e","length":6,"componentType":"forming-machine"},
+  {"label":"I1","breadth":4,"position":[-9,0,-42],"workstationId":"7fc790ea-abb7-4ade-9cdf-6b6537476fec","rotation":1,"id":"33c12306-0b57-4f92-9772-adbb8aae7012","length":6,"componentType":"inspection-machine"},
+  {"label":"I2","breadth":4,"position":[9,0,-42],"workstationId":"7fc790ea-abb7-4ade-9cdf-6b6537476fec","rotation":1,"id":"e3d0d846-973a-4346-9be3-c73f96fe042d","length":6,"componentType":"inspection-machine"},
+  {"id":"test432-supply-trunk","componentType":"conveyor-belt","position":[0,0,62],"length":2,"breadth":2.4,"rotation":1,"angle":1.5707963267948966,"entryAngle":1.5707963267948966,"exitAngle":1.5707963267948966},
+  {"id":"test432-C1-input-fan","componentType":"conveyor-belt","position":[-7.5,0,56],"length":18.027756377319946,"breadth":2.4,"rotation":1,"angle":2.5535900500422257,"entryAngle":1.5707963267948966,"exitAngle":1.5707963267948966},
+  {"id":"test432-C1-input-ramp-floor","componentType":"conveyor-belt","position":[-15,0,50],"length":2,"breadth":2.4,"rotation":1,"angle":1.5707963267948966,"entryAngle":1.5707963267948966,"exitAngle":1.5707963267948966},
+  {"id":"test432-C1-input-deck","componentType":"conveyor-belt","position":[-15,0,47],"length":4,"breadth":2.4,"rotation":1,"angle":1.5707963267948966,"entryAngle":1.5707963267948966,"exitAngle":1.5707963267948966,"workstationId":"b93c7f6a-d5b7-4bab-9284-8f75fe314173"},
+  {"id":"test432-C1-output-deck","componentType":"conveyor-belt","position":[-15,0,37],"length":4,"breadth":2.4,"rotation":1,"angle":1.5707963267948966,"entryAngle":1.5707963267948966,"exitAngle":1.5707963267948966,"workstationId":"b93c7f6a-d5b7-4bab-9284-8f75fe314173"},
+  {"id":"test432-C1-output-ramp-floor","componentType":"conveyor-belt","position":[-15,0,34],"length":2,"breadth":2.4,"rotation":1,"angle":1.5707963267948966,"entryAngle":1.5707963267948966,"exitAngle":1.5707963267948966},
+  {"id":"test432-C1-output-fan","componentType":"conveyor-belt","position":[-7.5,0,28.5],"length":17.4928556845359,"breadth":2.4,"rotation":1,"angle":0.5404195002705842,"entryAngle":1.5707963267948966,"exitAngle":1.5707963267948966},
+  {"id":"test432-C2-input-fan","componentType":"conveyor-belt","position":[-2.5,0,56],"length":11.180339887498949,"breadth":2.4,"rotation":1,"angle":2.0344439357957027,"entryAngle":1.5707963267948966,"exitAngle":1.5707963267948966},
+  {"id":"test432-C2-input-ramp-floor","componentType":"conveyor-belt","position":[-5,0,50],"length":2,"breadth":2.4,"rotation":1,"angle":1.5707963267948966,"entryAngle":1.5707963267948966,"exitAngle":1.5707963267948966},
+  {"id":"test432-C2-input-deck","componentType":"conveyor-belt","position":[-5,0,47],"length":4,"breadth":2.4,"rotation":1,"angle":1.5707963267948966,"entryAngle":1.5707963267948966,"exitAngle":1.5707963267948966,"workstationId":"b93c7f6a-d5b7-4bab-9284-8f75fe314173"},
+  {"id":"test432-C2-output-deck","componentType":"conveyor-belt","position":[-5,0,37],"length":4,"breadth":2.4,"rotation":1,"angle":1.5707963267948966,"entryAngle":1.5707963267948966,"exitAngle":1.5707963267948966,"workstationId":"b93c7f6a-d5b7-4bab-9284-8f75fe314173"},
+  {"id":"test432-C2-output-ramp-floor","componentType":"conveyor-belt","position":[-5,0,34],"length":2,"breadth":2.4,"rotation":1,"angle":1.5707963267948966,"entryAngle":1.5707963267948966,"exitAngle":1.5707963267948966},
+  {"id":"test432-C2-output-fan","componentType":"conveyor-belt","position":[-2.5,0,28.5],"length":10.295630140987,"breadth":2.4,"rotation":1,"angle":1.0636978224025597,"entryAngle":1.5707963267948966,"exitAngle":1.5707963267948966},
+  {"id":"test432-C3-input-fan","componentType":"conveyor-belt","position":[2.5,0,56],"length":11.180339887498949,"breadth":2.4,"rotation":1,"angle":1.1071487177940904,"entryAngle":1.5707963267948966,"exitAngle":1.5707963267948966},
+  {"id":"test432-C3-input-ramp-floor","componentType":"conveyor-belt","position":[5,0,50],"length":2,"breadth":2.4,"rotation":1,"angle":1.5707963267948966,"entryAngle":1.5707963267948966,"exitAngle":1.5707963267948966},
+  {"id":"test432-C3-input-deck","componentType":"conveyor-belt","position":[5,0,47],"length":4,"breadth":2.4,"rotation":1,"angle":1.5707963267948966,"entryAngle":1.5707963267948966,"exitAngle":1.5707963267948966,"workstationId":"b93c7f6a-d5b7-4bab-9284-8f75fe314173"},
+  {"id":"test432-C3-output-deck","componentType":"conveyor-belt","position":[5,0,37],"length":4,"breadth":2.4,"rotation":1,"angle":1.5707963267948966,"entryAngle":1.5707963267948966,"exitAngle":1.5707963267948966,"workstationId":"b93c7f6a-d5b7-4bab-9284-8f75fe314173"},
+  {"id":"test432-C3-output-ramp-floor","componentType":"conveyor-belt","position":[5,0,34],"length":2,"breadth":2.4,"rotation":1,"angle":1.5707963267948966,"entryAngle":1.5707963267948966,"exitAngle":1.5707963267948966},
+  {"id":"test432-C3-output-fan","componentType":"conveyor-belt","position":[2.5,0,28.5],"length":10.295630140987,"breadth":2.4,"rotation":1,"angle":2.0778948311872334,"entryAngle":1.5707963267948966,"exitAngle":1.5707963267948966},
+  {"id":"test432-C4-input-fan","componentType":"conveyor-belt","position":[7.5,0,56],"length":18.027756377319946,"breadth":2.4,"rotation":1,"angle":0.5880026035475675,"entryAngle":1.5707963267948966,"exitAngle":1.5707963267948966},
+  {"id":"test432-C4-input-ramp-floor","componentType":"conveyor-belt","position":[15,0,50],"length":2,"breadth":2.4,"rotation":1,"angle":1.5707963267948966,"entryAngle":1.5707963267948966,"exitAngle":1.5707963267948966},
+  {"id":"test432-C4-input-deck","componentType":"conveyor-belt","position":[15,0,47],"length":4,"breadth":2.4,"rotation":1,"angle":1.5707963267948966,"entryAngle":1.5707963267948966,"exitAngle":1.5707963267948966,"workstationId":"b93c7f6a-d5b7-4bab-9284-8f75fe314173"},
+  {"id":"test432-C4-output-deck","componentType":"conveyor-belt","position":[15,0,37],"length":4,"breadth":2.4,"rotation":1,"angle":1.5707963267948966,"entryAngle":1.5707963267948966,"exitAngle":1.5707963267948966,"workstationId":"b93c7f6a-d5b7-4bab-9284-8f75fe314173"},
+  {"id":"test432-C4-output-ramp-floor","componentType":"conveyor-belt","position":[15,0,34],"length":2,"breadth":2.4,"rotation":1,"angle":1.5707963267948966,"entryAngle":1.5707963267948966,"exitAngle":1.5707963267948966},
+  {"id":"test432-C4-output-fan","componentType":"conveyor-belt","position":[7.5,0,28.5],"length":17.4928556845359,"breadth":2.4,"rotation":1,"angle":2.601173153319209,"entryAngle":1.5707963267948966,"exitAngle":1.5707963267948966},
+  {"id":"test432-F1-input-fan","componentType":"conveyor-belt","position":[-6,0,13.5],"length":15,"breadth":2.4,"rotation":1,"angle":2.498091544796509,"entryAngle":1.5707963267948966,"exitAngle":1.5707963267948966},
+  {"id":"test432-F1-input-ramp-floor","componentType":"conveyor-belt","position":[-12,0,8],"length":2,"breadth":2.4,"rotation":1,"angle":1.5707963267948966,"entryAngle":1.5707963267948966,"exitAngle":1.5707963267948966},
+  {"id":"test432-F1-input-deck","componentType":"conveyor-belt","position":[-12,0,5],"length":4,"breadth":2.4,"rotation":1,"angle":1.5707963267948966,"entryAngle":1.5707963267948966,"exitAngle":1.5707963267948966,"workstationId":"c9f5f4e0-d3a0-44ed-acce-e7f84f0d2675"},
+  {"id":"test432-F1-output-deck","componentType":"conveyor-belt","position":[-12,0,-5],"length":4,"breadth":2.4,"rotation":1,"angle":1.5707963267948966,"entryAngle":1.5707963267948966,"exitAngle":1.5707963267948966,"workstationId":"c9f5f4e0-d3a0-44ed-acce-e7f84f0d2675"},
+  {"id":"test432-F1-output-ramp-floor","componentType":"conveyor-belt","position":[-12,0,-8],"length":2,"breadth":2.4,"rotation":1,"angle":1.5707963267948966,"entryAngle":1.5707963267948966,"exitAngle":1.5707963267948966},
+  {"id":"test432-F1-output-fan","componentType":"conveyor-belt","position":[-6,0,-13.5],"length":15,"breadth":2.4,"rotation":1,"angle":0.6435011087932844,"entryAngle":1.5707963267948966,"exitAngle":1.5707963267948966},
+  {"id":"test432-F2-input-fan","componentType":"conveyor-belt","position":[0,0,13.5],"length":9,"breadth":2.4,"rotation":1,"angle":1.5707963267948966,"entryAngle":1.5707963267948966,"exitAngle":1.5707963267948966},
+  {"id":"test432-F2-input-ramp-floor","componentType":"conveyor-belt","position":[0,0,8],"length":2,"breadth":2.4,"rotation":1,"angle":1.5707963267948966,"entryAngle":1.5707963267948966,"exitAngle":1.5707963267948966},
+  {"id":"test432-F2-input-deck","componentType":"conveyor-belt","position":[0,0,5],"length":4,"breadth":2.4,"rotation":1,"angle":1.5707963267948966,"entryAngle":1.5707963267948966,"exitAngle":1.5707963267948966,"workstationId":"c9f5f4e0-d3a0-44ed-acce-e7f84f0d2675"},
+  {"id":"test432-F2-output-deck","componentType":"conveyor-belt","position":[0,0,-5],"length":4,"breadth":2.4,"rotation":1,"angle":1.5707963267948966,"entryAngle":1.5707963267948966,"exitAngle":1.5707963267948966,"workstationId":"c9f5f4e0-d3a0-44ed-acce-e7f84f0d2675"},
+  {"id":"test432-F2-output-ramp-floor","componentType":"conveyor-belt","position":[0,0,-8],"length":2,"breadth":2.4,"rotation":1,"angle":1.5707963267948966,"entryAngle":1.5707963267948966,"exitAngle":1.5707963267948966},
+  {"id":"test432-F2-output-fan","componentType":"conveyor-belt","position":[0,0,-13.5],"length":9,"breadth":2.4,"rotation":1,"angle":1.5707963267948966,"entryAngle":1.5707963267948966,"exitAngle":1.5707963267948966},
+  {"id":"test432-F3-input-fan","componentType":"conveyor-belt","position":[6,0,13.5],"length":15,"breadth":2.4,"rotation":1,"angle":0.6435011087932844,"entryAngle":1.5707963267948966,"exitAngle":1.5707963267948966},
+  {"id":"test432-F3-input-ramp-floor","componentType":"conveyor-belt","position":[12,0,8],"length":2,"breadth":2.4,"rotation":1,"angle":1.5707963267948966,"entryAngle":1.5707963267948966,"exitAngle":1.5707963267948966},
+  {"id":"test432-F3-input-deck","componentType":"conveyor-belt","position":[12,0,5],"length":4,"breadth":2.4,"rotation":1,"angle":1.5707963267948966,"entryAngle":1.5707963267948966,"exitAngle":1.5707963267948966,"workstationId":"c9f5f4e0-d3a0-44ed-acce-e7f84f0d2675"},
+  {"id":"test432-F3-output-deck","componentType":"conveyor-belt","position":[12,0,-5],"length":4,"breadth":2.4,"rotation":1,"angle":1.5707963267948966,"entryAngle":1.5707963267948966,"exitAngle":1.5707963267948966,"workstationId":"c9f5f4e0-d3a0-44ed-acce-e7f84f0d2675"},
+  {"id":"test432-F3-output-ramp-floor","componentType":"conveyor-belt","position":[12,0,-8],"length":2,"breadth":2.4,"rotation":1,"angle":1.5707963267948966,"entryAngle":1.5707963267948966,"exitAngle":1.5707963267948966},
+  {"id":"test432-F3-output-fan","componentType":"conveyor-belt","position":[6,0,-13.5],"length":15,"breadth":2.4,"rotation":1,"angle":2.498091544796509,"entryAngle":1.5707963267948966,"exitAngle":1.5707963267948966},
+  {"id":"test432-I1-input-fan","componentType":"conveyor-belt","position":[-4.5,0,-28.5],"length":12.727922061357857,"breadth":2.4,"rotation":1,"angle":2.356194490192345,"entryAngle":1.5707963267948966,"exitAngle":1.5707963267948966},
+  {"id":"test432-I1-input-ramp-floor","componentType":"conveyor-belt","position":[-9,0,-34],"length":2,"breadth":2.4,"rotation":1,"angle":1.5707963267948966,"entryAngle":1.5707963267948966,"exitAngle":1.5707963267948966},
+  {"id":"test432-I1-input-deck","componentType":"conveyor-belt","position":[-9,0,-37],"length":4,"breadth":2.4,"rotation":1,"angle":1.5707963267948966,"entryAngle":1.5707963267948966,"exitAngle":1.5707963267948966,"workstationId":"7fc790ea-abb7-4ade-9cdf-6b6537476fec"},
+  {"id":"test432-I1-output-deck","componentType":"conveyor-belt","position":[-9,0,-47],"length":4,"breadth":2.4,"rotation":1,"angle":1.5707963267948966,"entryAngle":1.5707963267948966,"exitAngle":1.5707963267948966,"workstationId":"7fc790ea-abb7-4ade-9cdf-6b6537476fec"},
+  {"id":"test432-I1-output-ramp-floor","componentType":"conveyor-belt","position":[-9,0,-50],"length":2,"breadth":2.4,"rotation":1,"angle":1.5707963267948966,"entryAngle":1.5707963267948966,"exitAngle":1.5707963267948966},
+  {"id":"test432-I1-output-fan","componentType":"conveyor-belt","position":[-4.5,0,-55.5],"length":12.727922061357857,"breadth":2.4,"rotation":1,"angle":0.7853981633974483,"entryAngle":1.5707963267948966,"exitAngle":1.5707963267948966},
+  {"id":"test432-I2-input-fan","componentType":"conveyor-belt","position":[4.5,0,-28.5],"length":12.727922061357857,"breadth":2.4,"rotation":1,"angle":0.7853981633974483,"entryAngle":1.5707963267948966,"exitAngle":1.5707963267948966},
+  {"id":"test432-I2-input-ramp-floor","componentType":"conveyor-belt","position":[9,0,-34],"length":2,"breadth":2.4,"rotation":1,"angle":1.5707963267948966,"entryAngle":1.5707963267948966,"exitAngle":1.5707963267948966},
+  {"id":"test432-I2-input-deck","componentType":"conveyor-belt","position":[9,0,-37],"length":4,"breadth":2.4,"rotation":1,"angle":1.5707963267948966,"entryAngle":1.5707963267948966,"exitAngle":1.5707963267948966,"workstationId":"7fc790ea-abb7-4ade-9cdf-6b6537476fec"},
+  {"id":"test432-I2-output-deck","componentType":"conveyor-belt","position":[9,0,-47],"length":4,"breadth":2.4,"rotation":1,"angle":1.5707963267948966,"entryAngle":1.5707963267948966,"exitAngle":1.5707963267948966,"workstationId":"7fc790ea-abb7-4ade-9cdf-6b6537476fec"},
+  {"id":"test432-I2-output-ramp-floor","componentType":"conveyor-belt","position":[9,0,-50],"length":2,"breadth":2.4,"rotation":1,"angle":1.5707963267948966,"entryAngle":1.5707963267948966,"exitAngle":1.5707963267948966},
+  {"id":"test432-I2-output-fan","componentType":"conveyor-belt","position":[4.5,0,-55.5],"length":12.727922061357857,"breadth":2.4,"rotation":1,"angle":2.356194490192345,"entryAngle":1.5707963267948966,"exitAngle":1.5707963267948966},
+  {"id":"test432-cutting-to-forming","componentType":"conveyor-belt","position":[0,0,21],"length":6,"breadth":2.4,"rotation":1,"angle":1.5707963267948966,"entryAngle":1.5707963267948966,"exitAngle":1.5707963267948966},
+  {"id":"test432-forming-to-inspection","componentType":"conveyor-belt","position":[0,0,-21],"length":6,"breadth":2.4,"rotation":1,"angle":1.5707963267948966,"entryAngle":1.5707963267948966,"exitAngle":1.5707963267948966},
+  {"id":"test432-finished-trunk","componentType":"conveyor-belt","position":[0,0,-62.5],"length":5,"breadth":2.4,"rotation":1,"angle":1.5707963267948966,"entryAngle":1.5707963267948966,"exitAngle":1.5707963267948966}]
 
-const NODES: Node[] = [
-  { key: 'raw', type: 'raw-material', x: COLUMN_X.raw, z: 0 },
-  ...[-9, -3, 3, 9].map((z, i): Node => ({ key: `C${i + 1}`, type: 'cutting-machine', label: `C${i + 1}`, x: COLUMN_X.cutting, z })),
-  ...[-6, 0, 6].map((z, i): Node => ({ key: `F${i + 1}`, type: 'forming-machine', label: `F${i + 1}`, x: COLUMN_X.forming, z })),
-  ...[-3, 3].map((z, i): Node => ({ key: `I${i + 1}`, type: 'inspection-machine', label: `I${i + 1}`, x: COLUMN_X.inspection, z })),
-  { key: 'finished', type: 'finished-goods', x: COLUMN_X.finished, z: 0 },
-]
-
-// Belts follow the physical neighbours; which machine a job uses is the optimizer's decision, not the layout's.
-const LINKS: [string, string][] = [
-  ['raw', 'C1'], ['raw', 'C2'], ['raw', 'C3'], ['raw', 'C4'],
-  ['C1', 'F1'], ['C2', 'F1'], ['C2', 'F2'], ['C3', 'F2'], ['C3', 'F3'], ['C4', 'F3'],
-  ['F1', 'I1'], ['F2', 'I1'], ['F2', 'I2'], ['F3', 'I2'],
-  ['I1', 'finished'], ['I2', 'finished'],
-]
-
-/** The nine-machine factory with input and output docks, joined by conveyors. Labels match the backend IDs. */
-export function presetLayout(): PlacedMachine[] {
-  const machines: PlacedMachine[] = NODES.map(({ key, type, label, x, z }) => ({
-    id: `preset-${key}`, componentType: type, position: [x, 0, z], ...(label ? { label } : {}),
-  }))
-  const at = Object.fromEntries(NODES.map((node) => [node.key, node]))
-  const belts: PlacedMachine[] = []
-  for (const [from, to] of LINKS) {
-    const start: [number, number] = [at[from].x + MACHINE_HALF_WIDTH, at[from].z]
-    const end: [number, number] = [at[to].x - MACHINE_HALF_WIDTH, at[to].z]
-    const [piece] = layDirectionalConveyorRun(start, end, [...machines, ...belts], 0) ?? []
-    if (!piece) throw new Error(`Preset belt ${from} -> ${to} does not fit the floor`)
-    belts.push({ id: `preset-${from}-${to}`, componentType: 'conveyor-belt', ...piece })
-  }
-  return alignMerges(mergeConveyors([...machines, ...belts]))
-}
+export const presetLayout = (): PlacedMachine[] => PRESET.map((machine) => ({ ...machine, position: [...machine.position] }))

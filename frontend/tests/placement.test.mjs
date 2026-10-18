@@ -1,8 +1,17 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { OrthographicCamera, Raycaster, Vector2, Vector3 } from 'three'
-import { FACTORY_COMPONENTS, FLOOR_SIZE, footprint } from '../src/factoryComponents.ts'
+import { FACTORY_COMPONENTS, FLOOR_SIZE, footprint, layoutFitsFloor } from '../src/factoryComponents.ts'
 import { getSnappedFloorPosition, isPlacementClick, isPlacementPointer, trackPlacementDrag } from '../src/placement.ts'
+
+test('custom rectangular floor governs placement and refuses to shrink across components', () => {
+  const floor = { width: 200, depth: 80 }
+  assert.deepEqual(getSnappedFloorPosition(rayAt(80, 0), 'cutting-machine', undefined, floor), [80, 0, 0])
+  assert.equal(getSnappedFloorPosition(rayAt(0, 39), 'cutting-machine', undefined, floor), null)
+  const machines = [{ id: 'a', componentType: 'cutting-machine', position: [80, 0, 0] }]
+  assert.equal(layoutFitsFloor(machines, floor), true)
+  assert.equal(layoutFitsFloor(machines, { width: 160, depth: 80 }), false)
+})
 
 function rayAt(x, z) {
   return new Raycaster(new Vector3(x, 30, z), new Vector3(0, -1, 0))

@@ -1,4 +1,4 @@
-import { DIRECTIONS, WORKSTATION_HEIGHT, fitsFloor, footprint, machineFootprint, isResizableAreaType, machineDepth, machineWidth, type FactoryComponentType, type FloorPosition, type PlacedMachine } from './factoryComponents.ts'
+import { DEFAULT_FLOOR_SIZE, DIRECTIONS, WORKSTATION_HEIGHT, fitsFloor, footprint, machineFootprint, isResizableAreaType, machineDepth, machineWidth, type FloorSize, type FactoryComponentType, type FloorPosition, type PlacedMachine } from './factoryComponents.ts'
 import { floorPoint, getSnappedFloorPosition } from './placement.ts'
 import { Plane, Vector3, type Raycaster } from 'three'
 import { beltEnds, beltPoint, closestBeltPoint, tangentAngle } from './conveyorPath.ts'
@@ -11,7 +11,7 @@ export const MAX_LENGTH = 100
 export const MAX_STORAGE_SIZE = 40
 const BEND = 1 // half a conveyor's width: a turn happens inside one corner tile this far from each belt end
 
-type Machine = Pick<PlacedMachine, 'componentType' | 'position' | 'length' | 'breadth' | 'rotation' | 'angle' | 'entryAngle' | 'exitAngle' | 'workstationId'>
+type Machine = Pick<PlacedMachine, 'componentType' | 'position' | 'length' | 'breadth' | 'rotation' | 'angle' | 'entryAngle' | 'exitAngle' | 'workstationId' | 'disconnectedIn' | 'disconnectedOut'>
 type Point = [number, number]
 
 const dir = (m: Pick<Machine, 'rotation'>) => DIRECTIONS[(m.rotation ?? 0) % 4]
@@ -31,6 +31,7 @@ function link(a: Heading, b: Heading): Point | null {
 }
 
 function mated(a: Machine, b: Machine, machines: PlacedMachine[]): boolean {
+  if (a.disconnectedOut || b.disconnectedIn) return false
   if (a.componentType === 'workstation' || b.componentType === 'workstation') return false
   if (a.componentType === 'finished-goods' || b.componentType === 'raw-material') return false
   const l = a.angle === undefined && b.angle === undefined ? link(a, b) : [0, 0] as Point
@@ -40,7 +41,6 @@ function mated(a: Machine, b: Machine, machines: PlacedMachine[]): boolean {
   if (da[0] * db[0] + da[1] * db[1] < -0.95) return false
   if (a.workstationId === b.workstationId) return true
   if (a.workstationId && b.workstationId) return false
-  // A raised belt joins a floor belt only at the workstation edge, in a straight line.
   if (l[0] || l[1]) return false
   const hosted = a.workstationId ? a : b
   return hostedPortAtEdge(hosted, hosted === a ? 'out' : 'in', machines)
@@ -66,6 +66,10 @@ function ports(m: Machine): { in: Point; out: Point } {
   return { in: [m.position[0] - dx * half, m.position[2] - dz * half], out: [m.position[0] + dx * half, m.position[2] + dz * half] }
 }
 
+export function conveyorPort(m: PlacedMachine, side: 'in' | 'out'): Point {
+  return ports(m)[side]
+}
+
 const same = (a: Point, b: Point) => Math.hypot(a[0] - b[0], a[1] - b[1]) < 1e-4
 
 function onBelt(point: Point, belt: Machine): boolean {
@@ -80,10 +84,10 @@ function feeds(a: Machine, b: Machine, machines: PlacedMachine[]): boolean {
   if (mated(a, b, machines)) return true
   if (a.workstationId !== b.workstationId) return false
   // Incoming branches may share an outlet before a downstream trunk is drawn.
-  if (a.componentType === 'conveyor-belt' && b.componentType === 'conveyor-belt' && same(ports(a).out, ports(b).out) &&
+  if (a.componentType === 'conveyor-belt' && b.componentType === 'conveyor-belt' && !a.disconnectedOut && !b.disconnectedOut && same(ports(a).out, ports(b).out) &&
     Math.cos(tangentAngle(a, 1) - tangentAngle(b, 1)) > 0.95) return true
-  if (a.componentType === 'conveyor-belt' && onBelt(ports(b).in, a)) return true
-  return b.componentType === 'conveyor-belt' && onBelt(ports(a).out, b)
+  if (!b.disconnectedIn && a.componentType === 'conveyor-belt' && onBelt(ports(b).in, a)) return true
+  return !a.disconnectedOut && b.componentType === 'conveyor-belt' && onBelt(ports(a).out, b)
 }
 
 /** Visible sorting plates at branch and merge points, deduplicated for multi-way fans. */
@@ -112,7 +116,12 @@ export function conveyorJunctions(machines: PlacedMachine[]) {
 /** Which ports of `m` currently mate with another machine (derived from positions, so nothing to keep in sync). */
 export function connectedPorts(m: PlacedMachine, machines: PlacedMachine[]) {
   const others = machines.filter((o) => o.id !== m.id)
-  return { in: others.some((o) => feeds(o, m, machines)), out: others.some((o) => feeds(m, o, machines)) }
+  return {
+    in: others.some((o) => (!m.disconnectedIn && (mated(o, m, machines) ||
+      (o.workstationId === m.workstationId && o.componentType === 'conveyor-belt' && onBelt(ports(m).in, o)))) ||
+      (o.workstationId === m.workstationId && m.componentType === 'conveyor-belt' && !o.disconnectedOut && onBelt(ports(o).out, m))),
+    out: !m.disconnectedOut && others.some((o) => feeds(m, o, machines)),
+  }
 }
 
 /** Every component linked through touching ports or an explicit user group. Mounting alone does not group a machine with its workstation. */
@@ -128,14 +137,32 @@ export function linkedAssembly(id: string, machines: PlacedMachine[]): Set<strin
   return members
 }
 
-/** A platform carries its mounted machines when dragged, though they remain separately selectable. */
+/** A belt end sitting on another belt's end, or on/inside another component's footprint, is attached to it for movement. */
+function touches(belt: PlacedMachine, other: PlacedMachine): boolean {
+  const beltPorts = ports(belt)
+  const ends = [!belt.disconnectedIn && beltPorts.in, !belt.disconnectedOut && beltPorts.out].filter((end): end is Point => !!end)
+  if (other.componentType === 'conveyor-belt') {
+    const otherPorts = ports(other)
+    return [!other.disconnectedIn && otherPorts.in, !other.disconnectedOut && otherPorts.out].some((port) => !!port && ends.some((end) => same(end, port)))
+  }
+  const [width, depth] = machineFootprint(other)
+  return ends.some(([x, z]) => Math.abs(x - other.position[0]) <= width / 2 + 0.05 && Math.abs(z - other.position[2]) <= depth / 2 + 0.05)
+}
+
+/**
+ * Everything that travels when `id` is dragged: its linked assembly, a platform's mounted machines,
+ * and any belt whose end touches a traveller, so belts keep their connections as parts move.
+ */
 export function movementAssembly(id: string, machines: PlacedMachine[]): Set<string> {
   const members = linkedAssembly(id, machines)
+  const addLinked = (otherId: string) => linkedAssembly(otherId, machines).forEach((linkedId) => members.add(linkedId)) // Set iteration also visits what is added meanwhile
   for (const currentId of members) {
-    const current = machines.find((machine) => machine.id === currentId)
-    if (current?.componentType !== 'workstation') continue
-    for (const child of machines.filter((machine) => machine.workstationId === currentId)) {
-      for (const linkedId of linkedAssembly(child.id, machines)) members.add(linkedId)
+    const current = machines.find((machine) => machine.id === currentId)!
+    if (current.componentType === 'workstation') machines.filter((machine) => machine.workstationId === currentId).forEach((child) => addLinked(child.id))
+    for (const other of machines) {
+      if (members.has(other.id)) continue
+      const [belt, target] = current.componentType === 'conveyor-belt' ? [current, other] : [other, current]
+      if (belt.componentType === 'conveyor-belt' && !(current === belt && target.componentType === 'workstation') && touches(belt, target)) addLinked(other.id)
     }
   }
   return members
@@ -146,7 +173,7 @@ export function assemblyLocked(ids: Set<string>, machines: PlacedMachine[]): boo
 }
 
 /** Translate a whole assembly by one snapped delta, refusing moves across the floor edge. */
-export function translateAssembly(machines: PlacedMachine[], ids: Set<string>, draggedId: string, target: FloorPosition, detach = false): PlacedMachine[] | null {
+export function translateAssembly(machines: PlacedMachine[], ids: Set<string>, draggedId: string, target: FloorPosition, detach = false, floor: FloorSize = DEFAULT_FLOOR_SIZE): PlacedMachine[] | null {
   const dragged = machines.find((machine) => machine.id === draggedId)
   if (!dragged || !ids.has(draggedId) || assemblyLocked(ids, machines)) return null
   const dx = target[0] - dragged.position[0]
@@ -156,7 +183,7 @@ export function translateAssembly(machines: PlacedMachine[], ids: Set<string>, d
   return moved.every((machine) => {
     if (!ids.has(machine.id)) return true
     const [width, depth] = machineFootprint(machine)
-    return fitsFloor(machine.position[0], machine.position[2], width, depth) &&
+    return fitsFloor(machine.position[0], machine.position[2], width, depth, floor) &&
       (detach || !machine.workstationId || workstationContains(machine, moved) === machine.workstationId)
   }) && (detach || preservesSurfaceTransitions(machines, moved)) ? moved : null
 }
@@ -184,7 +211,7 @@ export function surfaceTransitions(machines: PlacedMachine[]) {
     if (a.componentType !== 'conveyor-belt' && b.componentType !== 'conveyor-belt') continue
     transitions.push({
       center: ports(a).out,
-      rotation: a.angle === undefined ? a.rotation ?? 0 : a.angle * 2 / Math.PI,
+      rotation: tangentAngle(a, 1) * 2 / Math.PI || 0,
       fromHeight: a.workstationId ? WORKSTATION_HEIGHT : 0,
       toHeight: b.workstationId ? WORKSTATION_HEIGHT : 0,
       ids: [a.id, b.id],
@@ -218,14 +245,15 @@ export function mergeConveyors(machines: PlacedMachine[], preferId?: string): Pl
   const belts = machines.filter((m) => m.componentType === 'conveyor-belt')
   for (const a of belts) {
     for (const b of belts) {
-      if (a === b || a.angle !== undefined || b.angle !== undefined || a.workstationId !== b.workstationId || (a.rotation ?? 0) !== (b.rotation ?? 0) || !same(ports(a).out, ports(b).in)) continue
+      if (a === b || a.displayLabel || b.displayLabel || a.disconnectedOut || b.disconnectedIn || a.angle !== undefined || b.angle !== undefined || a.workstationId !== b.workstationId || (a.rotation ?? 0) !== (b.rotation ?? 0) || !same(ports(a).out, ports(b).in)) continue
       if (assemblyLocked(linkedAssembly(a.id, machines), machines) || assemblyLocked(linkedAssembly(b.id, machines), machines)) continue
       const length = machineWidth(a.componentType, a.length) + machineWidth(b.componentType, b.length)
       if (length > MAX_LENGTH) continue
       const [dx, dz] = dir(a)
       const start = ports(a).in
       const groupId = a.groupId ?? b.groupId
-      const merged: PlacedMachine = { ...a, id: b.id === preferId ? b.id : a.id, ...(groupId ? { groupId } : {}), length, position: [start[0] + dx * length / 2, 0, start[1] + dz * length / 2] }
+      const { disconnectedOut: _joinedEnd, ...startBelt } = a
+      const merged: PlacedMachine = { ...startBelt, ...(b.disconnectedOut ? { disconnectedOut: true } : {}), id: b.id === preferId ? b.id : a.id, ...(groupId ? { groupId } : {}), length, position: [start[0] + dx * length / 2, 0, start[1] + dz * length / 2] }
       const rest = machines.filter((m) => m !== a && m !== b).map((m) => b.groupId && m.groupId === b.groupId ? { ...m, groupId } : m)
       return mergeConveyors([...rest, merged], preferId)
     }
@@ -239,7 +267,7 @@ export function alignMerges(machines: PlacedMachine[]): PlacedMachine[] {
   const updates = new Map<string, PlacedMachine>()
   for (const trunk of belts) {
     const node = ports(trunk).in
-    const incoming = belts.filter((m) => m !== trunk && m.workstationId === trunk.workstationId && same(ports(m).out, node))
+    const incoming = belts.filter((m) => m !== trunk && same(ports(m).out, node) && mated(m, trunk, machines))
     if (incoming.length < 2) continue // a plain chain keeps the downstream belt's inherited entry tangent
     const { entryAngle: _, ...straight } = trunk
     const angle = tangentAngle(straight, 0)
@@ -275,18 +303,18 @@ export function snapToConnections(type: FactoryComponentType, length: number | u
   return best
 }
 
-const fits = (type: FactoryComponentType, length: number | undefined, rotation: number, [x, , z]: FloorPosition, breadth?: number) => {
+const fits = (type: FactoryComponentType, length: number | undefined, rotation: number, [x, , z]: FloorPosition, breadth?: number, floor: FloorSize = DEFAULT_FLOOR_SIZE) => {
   const [ex, ez] = footprint(type, length, rotation, breadth)
-  return fitsFloor(x, z, ex, ez)
+  return fitsFloor(x, z, ex, ez, floor)
 }
 
 /** Floor position under the ray, grid-snapped, then port-snapped when that still fits on the floor. */
-export function resolvePlacement(raycaster: Raycaster, type: FactoryComponentType, length: number | undefined, rotation: number, machines: PlacedMachine[], excludeId?: string, breadth?: number): FloorPosition | null {
-  const base = getSnappedFloorPosition(raycaster, type, footprint(type, length, rotation, breadth))
+export function resolvePlacement(raycaster: Raycaster, type: FactoryComponentType, length: number | undefined, rotation: number, machines: PlacedMachine[], excludeId?: string, breadth?: number, floor: FloorSize = DEFAULT_FLOOR_SIZE): FloorPosition | null {
+  const base = getSnappedFloorPosition(raycaster, type, footprint(type, length, rotation, breadth), floor)
   if (!base) return null
   const snapped = snapToConnections(type, length, rotation, base, machines.filter((m) =>
     m.id !== excludeId && (!m.workstationId || hostedPortAtEdge(m, 'in', machines) || hostedPortAtEdge(m, 'out', machines))))
-  return fits(type, length, rotation, snapped, breadth) ? snapped : base
+  return fits(type, length, rotation, snapped, breadth, floor) ? snapped : base
 }
 
 export type PlacementTarget = { position: FloorPosition; workstationId?: string }
@@ -331,7 +359,7 @@ function workstationContains(machine: Machine, machines: PlacedMachine[]): strin
 }
 
 /** Prefer the top of a workstation when the pointer is over its deck. */
-export function resolvePlacementTarget(raycaster: Raycaster, type: FactoryComponentType, length: number | undefined, rotation: number, machines: PlacedMachine[], breadth?: number): PlacementTarget | null {
+export function resolvePlacementTarget(raycaster: Raycaster, type: FactoryComponentType, length: number | undefined, rotation: number, machines: PlacedMachine[], breadth?: number, floor: FloorSize = DEFAULT_FLOOR_SIZE): PlacementTarget | null {
   if (type !== 'workstation') {
     const hit = raycaster.ray.intersectPlane(workstationPlane, new Vector3())
     const host = hit && workstationAtPoint([hit.x, hit.z], machines)
@@ -345,7 +373,7 @@ export function resolvePlacementTarget(raycaster: Raycaster, type: FactoryCompon
       return inside(position) ? { position, workstationId: host.id } : null
     }
   }
-  const position = resolvePlacement(raycaster, type, length, rotation, machines, undefined, breadth)
+  const position = resolvePlacement(raycaster, type, length, rotation, machines, undefined, breadth, floor)
   return position ? { position } : null
 }
 
@@ -354,12 +382,14 @@ export type Laid = { position: FloorPosition; length: number; rotation: number; 
 const halfGrid = (value: number) => Math.round(value * 2) / 2
 
 /** End sockets win over nearby belt interiors, so repeated drags share one exact node. */
-export function conveyorSocket(raw: Point, machines: PlacedMachine[], side: 'in' | 'out', workstationId?: string): { point: Point; machineId: string; angle: number } | null {
+export function conveyorSocket(raw: Point, machines: PlacedMachine[], side: 'in' | 'out', workstationId?: string, acrossWorkstations = false): { point: Point; machineId: string; angle: number } | null {
   let best: ReturnType<typeof conveyorSocket> = null
   let distance = SNAP_DISTANCE
   for (const m of machines) {
     if (m.componentType === 'workstation' || (side === 'out' && m.componentType === 'finished-goods') || (side === 'in' && m.componentType === 'raw-material')) continue
-    if (m.workstationId !== workstationId && !(workstationId === undefined && m.workstationId && hostedPortAtEdge(m, side, machines))) continue
+    if (side === 'in' ? m.disconnectedIn : m.disconnectedOut) continue
+    if (m.workstationId !== workstationId && !(workstationId === undefined && m.workstationId && hostedPortAtEdge(m, side, machines)) &&
+      !(acrossWorkstations && side === 'in' && m.workstationId && m.componentType !== 'conveyor-belt')) continue
     const point = ports(m)[side]
     const d = Math.hypot(point[0] - raw[0], point[1] - raw[1])
     if (d < distance) {
@@ -385,7 +415,7 @@ export function conveyorStart(raw: Point, machines: PlacedMachine[], workstation
 
 function destinationSocket(raw: Point, source: Point, machines: PlacedMachine[], workstationId?: string) {
   const candidates = machines.filter((m) => Math.hypot(ports(m).in[0] - source[0], ports(m).in[1] - source[1]) >= MIN_LENGTH)
-  const input = conveyorSocket(raw, candidates, 'in', workstationId)
+  const input = conveyorSocket(raw, candidates, 'in', workstationId, true)
   const output = conveyorSocket(raw, candidates.filter((m) => m.componentType === 'conveyor-belt' &&
     Math.hypot(ports(m).out[0] - source[0], ports(m).out[1] - source[1]) >= MIN_LENGTH), 'out', workstationId)
   if (!input) return output
@@ -399,8 +429,10 @@ function conveyorEnd(raw: Point, source: Point, machines: PlacedMachine[], works
   let best: Point = [halfGrid(raw[0]), halfGrid(raw[1])]
   let distance = 1.15
   for (const m of machines) {
-    if (m.workstationId !== workstationId || m.componentType !== 'conveyor-belt') continue
+    if (m.componentType !== 'conveyor-belt' || (m.workstationId !== workstationId && !(workstationId && !m.workstationId))) continue
     const nearest = closestBeltPoint(m, raw)
+    const host = workstationId && machines.find((machine) => machine.id === workstationId && machine.componentType === 'workstation')
+    if (host && !m.workstationId && workstationAtPoint(nearest.point, [host])) continue
     if (nearest.distance < distance && Math.hypot(nearest.point[0] - source[0], nearest.point[1] - source[1]) >= MIN_LENGTH) {
       best = nearest.point; distance = nearest.distance
     }
@@ -410,19 +442,34 @@ function conveyorEnd(raw: Point, source: Point, machines: PlacedMachine[], works
 
 function anchorTangent(point: Point, machines: PlacedMachine[], workstationId: string | undefined, side: 'in' | 'out'): number | undefined {
   for (const m of machines) {
-    if (m.workstationId !== workstationId || m.componentType !== 'conveyor-belt') continue
+    if (m.componentType !== 'conveyor-belt' || (m.workstationId !== workstationId && !(side === 'in' && workstationId && !m.workstationId))) continue
     const nearest = closestBeltPoint(m, point)
     if (nearest.distance < 0.08) return tangentAngle(m, nearest.t)
   }
   for (const m of machines) {
-    if (m.workstationId !== workstationId || m.componentType === 'workstation') continue
+    if (m.componentType === 'workstation' || (m.workstationId !== workstationId && side !== 'in')) continue
     if (same(ports(m)[side], point)) return m.angle ?? (m.rotation ?? 0) * Math.PI / 2
   }
   return undefined
 }
 
+function stationInterval(host: PlacedMachine, source: Point, unit: Point, reach: number): [number, number] | null {
+  const [width, depth] = footprint('workstation', host.length, host.rotation ?? 0, host.breadth)
+  let near = 0, far = reach
+  for (const [origin, velocity, center, half] of [[source[0], unit[0], host.position[0], width / 2], [source[1], unit[1], host.position[2], depth / 2]]) {
+    if (Math.abs(velocity) < 1e-8) {
+      if (Math.abs(origin - center) > half) return null
+      continue
+    }
+    const a = (center - half - origin) / velocity, b = (center + half - origin) / velocity
+    near = Math.max(near, Math.min(a, b))
+    far = Math.min(far, Math.max(a, b))
+  }
+  return far > near + 1e-4 ? [near, far] : null
+}
+
 /** Draw at the cursor's actual heading, with a half-unit endpoint grid for stable preview. */
-export function layDirectionalConveyorRun(start: Point, rawCursor: Point, machines: PlacedMachine[], idleRotation: number, workstationId?: string): Laid[] | null {
+export function layDirectionalConveyorRun(start: Point, rawCursor: Point, machines: PlacedMachine[], idleRotation: number, workstationId?: string, floor: FloorSize = DEFAULT_FLOOR_SIZE): Laid[] | null {
   const source = conveyorStart(start, machines, workstationId)
   const cursor = conveyorEnd(rawCursor, source, machines, workstationId)
   let dx = cursor[0] - source[0], dz = cursor[1] - source[1]
@@ -431,7 +478,8 @@ export function layDirectionalConveyorRun(start: Point, rawCursor: Point, machin
   const ux = dx / (Math.hypot(dx, dz) || 1), uz = dz / (Math.hypot(dx, dz) || 1)
   const angle = Math.atan2(-uz, ux)
   const entryAngle = conveyorSocket(source, machines, 'out', workstationId)?.angle ?? anchorTangent(source, machines, workstationId, 'out')
-  const exitAngle = destinationSocket(cursor, source, machines, workstationId)?.angle ?? anchorTangent(cursor, machines, workstationId, 'in')
+  const destination = destinationSocket(cursor, source, machines, workstationId)
+  const exitAngle = destination?.angle ?? anchorTangent(cursor, machines, workstationId, 'in')
   const length = Math.min(MAX_LENGTH, Math.max(MIN_LENGTH, reach))
   const make = (from: number, extent: number, host?: string, entry?: number, exit?: number): Laid => ({
     position: [source[0] + ux * (from + extent / 2), 0, source[1] + uz * (from + extent / 2)],
@@ -439,31 +487,28 @@ export function layDirectionalConveyorRun(start: Point, rawCursor: Point, machin
     ...(entry === undefined ? {} : { entryAngle: entry }), ...(exit === undefined ? {} : { exitAngle: exit }),
     ...(host ? { workstationId: host } : {}),
   })
-  if (!workstationId) {
-    const piece = make(0, length, undefined, entryAngle, exitAngle)
-    const [w, d] = machineFootprint({ componentType: 'conveyor-belt', ...piece })
-    return fitsFloor(piece.position[0], piece.position[2], w, d) ? [piece] : null
-  }
-  const host = machines.find((m) => m.id === workstationId && m.componentType === 'workstation')
-  if (!host) return null
-  const [w, d] = footprint('workstation', host.length, host.rotation ?? 0, host.breadth)
-  const exits = [ux > 1e-6 ? (host.position[0] + w / 2 - source[0]) / ux : ux < -1e-6 ? (host.position[0] - w / 2 - source[0]) / ux : Infinity,
-    uz > 1e-6 ? (host.position[2] + d / 2 - source[1]) / uz : uz < -1e-6 ? (host.position[2] - d / 2 - source[1]) / uz : Infinity]
-  const edge = Math.min(...exits.filter((value) => value >= 0))
-  const deckLength = Math.min(length, edge)
-  const pieces: Laid[] = []
-  if (deckLength > 0.1) {
-    const piece = make(0, deckLength, workstationId, entryAngle, deckLength === length ? exitAngle : undefined)
-    pieces.push(piece)
-  }
-  const floorLength = length - deckLength
-  if (floorLength >= MIN_LENGTH) {
-    const piece = make(deckLength, floorLength, undefined, undefined, exitAngle)
-    const [fw, fd] = machineFootprint({ componentType: 'conveyor-belt', ...piece })
-    if (!fitsFloor(piece.position[0], piece.position[2], fw, fd)) return null
-    pieces.push(piece)
-  }
-  return pieces.length ? pieces : null
+  const sourceHost = workstationId ? machines.find((m) => m.id === workstationId && m.componentType === 'workstation') : undefined
+  if (workstationId && !sourceHost) return null
+  const target = destination && machines.find((m) => m.id === destination.machineId)
+  const targetHost = target?.workstationId ? machines.find((m) => m.id === target.workstationId && m.componentType === 'workstation') : undefined
+  const unit: Point = [ux, uz]
+  const sourceInterval = sourceHost ? stationInterval(sourceHost, source, unit, length) : null
+  const targetInterval = targetHost && targetHost.id !== sourceHost?.id ? stationInterval(targetHost, source, unit, length) : null
+  const sourceEdge = sourceInterval?.[1] ?? 0
+  const targetEdge = targetInterval?.[0] ?? length
+  if (targetHost && !targetInterval && targetHost.id !== sourceHost?.id) return null
+  if (sourceEdge > targetEdge + 1e-4) return null
+  const sections: { from: number; to: number; host?: string }[] = []
+  if (sourceHost && sourceEdge > 1e-4) sections.push({ from: 0, to: sourceEdge, host: sourceHost.id })
+  if (targetEdge - sourceEdge > 1e-4) sections.push({ from: sourceEdge, to: targetEdge })
+  if (targetHost && targetHost.id !== sourceHost?.id && length - targetEdge > 1e-4) sections.push({ from: targetEdge, to: length, host: targetHost.id })
+  if (!sections.length) sections.push({ from: 0, to: length, host: sourceHost?.id })
+  const pieces = sections.map((section, index) => make(section.from, section.to - section.from, section.host,
+    index === 0 ? entryAngle : angle, index === sections.length - 1 ? exitAngle : angle))
+  return pieces.every((piece) => {
+      const [w, d] = machineFootprint({ componentType: 'conveyor-belt', ...piece })
+      return fitsFloor(piece.position[0], piece.position[2], w, d, floor)
+    }) ? pieces : null
 }
 
 /**
@@ -533,21 +578,21 @@ export function layConveyorRun(start: Point, cursor: Point, machines: PlacedMach
 }
 
 /** Quarter-turn a machine in place; ignored when the turned footprint would leave the floor. */
-export function rotateMachine(m: PlacedMachine): PlacedMachine {
+export function rotateMachine(m: PlacedMachine, floor: FloorSize = DEFAULT_FLOOR_SIZE): PlacedMachine {
   if (m.componentType === 'conveyor-belt' && m.angle !== undefined) {
     const angle = m.angle + Math.PI / 2
     const turned = { ...m, angle,
       ...(m.entryAngle === undefined ? {} : { entryAngle: m.entryAngle + Math.PI / 2 }),
       ...(m.exitAngle === undefined ? {} : { exitAngle: m.exitAngle + Math.PI / 2 }) }
     const [width, depth] = machineFootprint(turned)
-    return fitsFloor(m.position[0], m.position[2], width, depth) ? turned : m
+    return fitsFloor(m.position[0], m.position[2], width, depth, floor) ? turned : m
   }
   const rotation = ((m.rotation ?? 0) + 1) % 4
-  return fits(m.componentType, m.length, rotation, m.position, m.breadth) ? { ...m, rotation } : m
+  return fits(m.componentType, m.length, rotation, m.position, m.breadth, floor) ? { ...m, rotation } : m
 }
 
 /** Resize a deposit or workstation along either axis. Keep a deposit's attached feed port fixed. */
-export function resizeStorage(m: PlacedMachine, machines: PlacedMachine[], axis: 'length' | 'breadth', requested: number): PlacedMachine {
+export function resizeStorage(m: PlacedMachine, machines: PlacedMachine[], axis: 'length' | 'breadth', requested: number, floor: FloorSize = DEFAULT_FLOOR_SIZE): PlacedMachine {
   if (!isResizableAreaType(m.componentType)) return m
   const minimum = axis === 'length' ? getStorageDefault(m.componentType, 'length') : getStorageDefault(m.componentType, 'breadth')
   const next = Math.min(MAX_STORAGE_SIZE, Math.max(minimum, Math.round(requested)))
@@ -568,7 +613,7 @@ export function resizeStorage(m: PlacedMachine, machines: PlacedMachine[], axis:
   const mountedFit = m.componentType !== 'workstation' || machines.every((child) => child.workstationId !== m.id ||
     workstationContains(child, [resized]) === m.id)
   const connectedFit = m.componentType !== 'workstation' || preservesSurfaceTransitions(machines, machines.map((machine) => machine.id === m.id ? resized : machine))
-  return fits(resized.componentType, resized.length, resized.rotation ?? 0, resized.position, resized.breadth) && mountedFit && connectedFit &&
+  return fits(resized.componentType, resized.length, resized.rotation ?? 0, resized.position, resized.breadth, floor) && mountedFit && connectedFit &&
     (!m.workstationId || workstationForFootprint(resized.componentType, resized.length, resized.rotation ?? 0, resized.position, machines, resized.breadth) === m.workstationId) ? resized : m
 }
 
@@ -577,7 +622,7 @@ function getStorageDefault(type: FactoryComponentType, axis: 'length' | 'breadth
 }
 
 /** Change a conveyor's length, keeping the connected end fixed (the start unless only the output is connected). */
-export function resizeConveyor(m: PlacedMachine, machines: PlacedMachine[], requested: number): PlacedMachine {
+export function resizeConveyor(m: PlacedMachine, machines: PlacedMachine[], requested: number, floor: FloorSize = DEFAULT_FLOOR_SIZE): PlacedMachine {
   const length = Math.min(MAX_LENGTH, Math.max(MIN_LENGTH, Math.round(requested)))
   const current = machineWidth(m.componentType, m.length)
   if (m.componentType !== 'conveyor-belt' || length === current) return m
@@ -588,14 +633,14 @@ export function resizeConveyor(m: PlacedMachine, machines: PlacedMachine[], requ
   const position: FloorPosition = [m.position[0] + dx * shift, 0, m.position[2] + dz * shift]
   const resized = { ...m, length, position }
   const [width, depth] = machineFootprint(resized)
-  return fitsFloor(position[0], position[2], width, depth) ? resized : m
+  return fitsFloor(position[0], position[2], width, depth, floor) ? resized : m
 }
 
 /** Resize a laid belt and carry the connected downstream section with its moving output. */
-export function resizeConveyorLayout(id: string, machines: PlacedMachine[], requested: number): PlacedMachine[] | null {
+export function resizeConveyorLayout(id: string, machines: PlacedMachine[], requested: number, floor: FloorSize = DEFAULT_FLOOR_SIZE): PlacedMachine[] | null {
   const belt = machines.find((machine) => machine.id === id)
   if (!belt || assemblyLocked(linkedAssembly(id, machines), machines)) return null
-  const resized = resizeConveyor(belt, machines, requested)
+  const resized = resizeConveyor(belt, machines, requested, floor)
   if (resized === belt) return null
 
   const before = ports(belt).out
@@ -629,7 +674,7 @@ export function resizeConveyorLayout(id: string, machines: PlacedMachine[], requ
   }))
   return preserved && updated.every((machine) => {
     const [width, depth] = machineFootprint(machine)
-    return fitsFloor(machine.position[0], machine.position[2], width, depth) &&
+    return fitsFloor(machine.position[0], machine.position[2], width, depth, floor) &&
       (!machine.workstationId || workstationContains(machine, updated) === machine.workstationId)
   }) &&
     preservesSurfaceTransitions(machines, updated) ? updated : null

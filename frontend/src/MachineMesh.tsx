@@ -3,8 +3,8 @@ import type { MachineStatus } from './api'
 import { Edges, Html } from '@react-three/drei'
 import { CatmullRomCurve3, EdgesGeometry, Vector3 } from 'three'
 import { getFactoryComponent, machineDepth, machineWidth, type FactoryComponentType, type FloorPosition, type PlacedMachine } from './factoryComponents'
-import { beltEnds, beltPoint, beltTangent, type BeltPath } from './conveyorPath'
-import { beltCoverage, sweepBelt } from './conveyorGeometry'
+import { beltEnds, beltPoint, beltTangent, beltTrimParameter, type BeltPath } from './conveyorPath'
+import { beltCoverage, rampHeight, sweepBelt, sweepRamp } from './conveyorGeometry'
 
 const noRaycast = () => {}
 // Floor pad colour per machine state; the label tag repeats the state in text.
@@ -36,8 +36,8 @@ function CurvedConveyor({ length, angle, entryAngle, exitAngle, color, ghost, ma
   const path: BeltPath = { position: [0, 0, 0], length, angle: 0,
     entryAngle: entryAngle === undefined ? undefined : entryAngle - angle,
     exitAngle: exitAngle === undefined ? undefined : exitAngle - angle }
-  const from = transitionIn ? Math.min(0.4, 1 / length) : 0
-  const to = transitionOut ? Math.max(0.6, 1 - 1 / length) : 1
+  const from = transitionIn ? beltTrimParameter(path, 'start') : 0
+  const to = transitionOut ? beltTrimParameter(path, 'end') : 1
   const worldPath: BeltPath = { position, length, angle, entryAngle, exitAngle }
   const coverage = useMemo(() => {
     const ends = beltEnds(worldPath)
@@ -122,35 +122,32 @@ export function CornerMesh({ center, from, to, highlighted, elevation = 0 }: { c
 
 /** Short raised-to-floor conveyor joint, drawn across a connected pair's common port. */
 export function TransitionMesh({ center, rotation, fromHeight, toHeight, highlighted, ghost = false }: { center: [number, number]; rotation: number; fromHeight: number; toHeight: number; highlighted: boolean; ghost?: boolean }) {
-  const tilt = Math.atan2(toHeight - fromHeight, 2)
-  return <group position={[center[0], (fromHeight + toHeight) / 2, center[1]]} rotation={[0, rotation * Math.PI / 2, 0]}>
-    <group rotation={[0, 0, tilt]}>
-      <mesh position={[0, 0.38, 0]} castShadow={!ghost} receiveShadow={!ghost} raycast={noRaycast}>
-        <boxGeometry args={[2.1, 0.44, 2.18]} />
-        <meshStandardMaterial color="#334b50" roughness={0.62} metalness={0.18} transparent={ghost} opacity={ghost ? 0.35 : 1} depthWrite={!ghost} />
-      </mesh>
-      <mesh position={[0, 0.65, 0]} receiveShadow raycast={noRaycast}>
-        <boxGeometry args={[2.08, 0.09, 1.78]} />
-        <meshStandardMaterial color="#576f70" roughness={0.6} metalness={0.16} transparent={ghost} opacity={ghost ? 0.35 : 1} depthWrite={!ghost} />
-      </mesh>
-      {[-1.04, 1.04].map((z) => <mesh key={z} position={[0, 0.77, z]} castShadow raycast={noRaycast}>
-        <boxGeometry args={[2.12, 0.32, 0.12]} />
-        <meshStandardMaterial color="#378568" roughness={0.5} transparent={ghost} opacity={ghost ? 0.35 : 1} depthWrite={!ghost} />
-      </mesh>)}
-      {[-0.62, 0, 0.62].map((x) => <mesh key={x} position={[x, 0.72, 0]} raycast={noRaycast}>
-        <boxGeometry args={[0.08, 0.04, 1.72]} />
-        <meshStandardMaterial color="#b5c6c6" transparent={ghost} opacity={ghost ? 0.35 : 1} depthWrite={!ghost} />
-      </mesh>)}
-      {highlighted && <mesh position={[0, 0.42, 0]} raycast={noRaycast}>
-        <boxGeometry args={[2.2, 0.9, 2.3]} />
-        <meshBasicMaterial visible={false} />
-        <Edges color="#29edff" lineWidth={1.8} toneMapped={false} depthTest={false} raycast={noRaycast} />
-      </mesh>}
-    </group>
+  const shapes = useMemo(() => {
+    const base = sweepRamp(fromHeight, toHeight, 2.2, 0.085, 0.635)
+    return {
+      base,
+      bed: sweepRamp(fromHeight, toHeight, 2.08, 0.625, 0.715),
+      leftRail: sweepRamp(fromHeight, toHeight, 0.12, 0.61, 0.93, -1.04),
+      rightRail: sweepRamp(fromHeight, toHeight, 0.12, 0.61, 0.93, 1.04),
+      outline: new EdgesGeometry(base, 30),
+    }
+  }, [fromHeight, toHeight])
+  useEffect(() => () => { Object.values(shapes).forEach((geometry) => geometry.dispose()) }, [shapes])
+  const material = (color: string) => <meshStandardMaterial color={color} roughness={0.52} metalness={0.18} transparent={ghost} opacity={ghost ? 0.35 : 1} depthWrite={!ghost} />
+  return <group position={[center[0], 0, center[1]]} rotation={[0, rotation * Math.PI / 2, 0]}>
+    <mesh geometry={shapes.base} castShadow={!ghost} receiveShadow={!ghost} raycast={noRaycast}>{material('#334b50')}</mesh>
+    <mesh geometry={shapes.bed} receiveShadow={!ghost} raycast={noRaycast}>{material('#576f70')}</mesh>
+    <mesh geometry={shapes.leftRail} castShadow={!ghost} raycast={noRaycast}>{material('#378568')}</mesh>
+    <mesh geometry={shapes.rightRail} castShadow={!ghost} raycast={noRaycast}>{material('#378568')}</mesh>
+    {[-0.62, 0, 0.62].map((x) => <mesh key={x} position={[x, rampHeight(fromHeight, toHeight, x) + 0.735, 0]} raycast={noRaycast}>
+      <boxGeometry args={[0.08, 0.04, 1.72]} />
+      {material('#b5c6c6')}
+    </mesh>)}
+    {highlighted && <lineSegments geometry={shapes.outline} raycast={noRaycast}><lineBasicMaterial color="#29edff" toneMapped={false} depthTest={false} /></lineSegments>}
   </group>
 }
 
-export function MachineMesh({ componentType, position, ghost = false, machineId, selected = false, highlighted = false, locked = false, mounted = false, transitionIn = false, transitionOut = false, groupSize = 1, onDelete, length, breadth, rotation = 0, angle, entryAngle, exitAngle, neighbors = [], ports, label, status, details }: {
+export function MachineMesh({ componentType, position, ghost = false, machineId, selected = false, highlighted = false, locked = false, mounted = false, transitionIn = false, transitionOut = false, groupSize = 1, onDelete, length, breadth, rotation = 0, angle, entryAngle, exitAngle, neighbors = [], ports, label, displayLabel, status, details }: {
   componentType: FactoryComponentType
   position: FloorPosition
   ghost?: boolean
@@ -172,6 +169,7 @@ export function MachineMesh({ componentType, position, ghost = false, machineId,
   neighbors?: PlacedMachine[]
   ports?: { in: boolean; out: boolean }
   label?: string // backend machine ID, e.g. F1
+  displayLabel?: string
   status?: MachineStatus // from FactoryState.machineStates[label]
   details?: ReactNode // digital-twin controls rendered in the selection card
 }) {
@@ -179,6 +177,7 @@ export function MachineMesh({ componentType, position, ghost = false, machineId,
   const [, height] = component.dimensions
   const width = machineWidth(componentType, length)
   const depth = machineDepth(componentType, breadth)
+  const hasInspector = componentType === 'cutting-machine' || componentType === 'forming-machine' || componentType === 'inspection-machine'
   const part = (at: Point, size: Point, color: string, metalness?: number, emissive?: string) =>
     <BoxPart at={at} size={size} color={color} ghost={ghost} machineId={machineId} metalness={metalness} emissive={emissive} />
   const cylinder = (at: Point, radius: number, partHeight: number, color: string, partRotation?: Point) =>
@@ -246,8 +245,8 @@ export function MachineMesh({ componentType, position, ghost = false, machineId,
       <boxGeometry args={[width + 0.5, 0.06, depth + 0.5]} />
       <meshBasicMaterial color={STATUS_COLOR[status]} />
     </mesh>}
-    {label && !selected && !ghost && <Html position={[0, height + 0.4, 0]} center zIndexRange={[4, 0]} style={{ pointerEvents: 'none' }}>
-      <span className="machine-label" data-status={status}>{label}{status && status !== 'idle' && <small>{status}</small>}</span>
+    {(displayLabel || label) && (!selected || !hasInspector) && !ghost && <Html position={[0, height + 0.4, 0]} center zIndexRange={[4, 0]} style={{ pointerEvents: 'none' }}>
+      <span className="machine-label" data-status={status} title={displayLabel || label}><span className="machine-label-text">{displayLabel || label}</span>{status && status !== 'idle' && <small>{status}</small>}</span>
     </Html>}
     {(selected || highlighted) && !ghost && <>
       {componentType !== 'conveyor-belt' && <mesh position={[0, height / 2, 0]} raycast={noRaycast}>
@@ -255,14 +254,14 @@ export function MachineMesh({ componentType, position, ghost = false, machineId,
         <meshBasicMaterial visible={false} />
         <Edges color="#29edff" lineWidth={1.8} toneMapped={false} depthTest={false} raycast={noRaycast} />
       </mesh>}
-      {selected && <Html position={[0, height + 0.8, 0]} center zIndexRange={[5, 0]} wrapperClass="machine-status-anchor" style={{ pointerEvents: 'none' }}>
+      {selected && hasInspector && <Html position={[0, height + 0.8, 0]} center zIndexRange={[5, 0]} wrapperClass="machine-status-anchor" style={{ pointerEvents: 'none' }}>
         <section className="machine-status-card" aria-label={`${component.name} details`}>
-          {!locked && <button type="button" className="machine-status-delete" aria-label={`Delete ${groupSize > 1 ? 'linked group' : component.name}`} title="Delete" onClick={onDelete}>
+          {!locked && <button type="button" className="machine-status-delete" aria-label={`Delete ${groupSize > 1 ? 'selected components' : component.name}`} title="Delete" onClick={onDelete}>
             <svg viewBox="0 0 12 12" aria-hidden="true"><path d="m2 2 8 8M10 2l-8 8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></svg>
           </button>}
-          <h2>{component.name}</h2>
+          <h2>{displayLabel || component.name}</h2>
           {details}
-          <p>{locked ? `${groupSize} ${groupSize === 1 ? 'component' : 'components'} locked. Unlock in the sidebar to edit.` : componentType === 'workstation' ? 'Place machines on this platform. Drag it to move everything mounted on it.' : mounted ? 'Drag to reposition on the workstation. Alt-drag to take it off.' : groupSize > 1 ? `${groupSize} linked components. Drag one to move the assembly.` : componentType === 'raw-material' ? 'Feed stock into a conveyor from the blue output.' : componentType === 'finished-goods' ? 'Connect the orange input to collect finished products.' : 'Orange marks input; blue marks output. Join ends to build a line.'}</p>
+          <p>{locked ? `${groupSize} ${groupSize === 1 ? 'component' : 'components'} locked. Unlock in the sidebar to edit.` : groupSize > 1 ? `${groupSize} components selected. Drag one to move the selection.` : mounted ? 'Drag to reposition on the workstation. Alt-drag to take it off.' : 'Orange marks input; blue marks output. Join ends to build a line.'}</p>
         </section>
       </Html>}
     </>}

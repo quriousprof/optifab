@@ -7,6 +7,93 @@ import { alignMerges, assemblyLocked, connectedPorts, conveyorJunctions, cornerT
 const belt = { id: 'b', componentType: 'conveyor-belt', position: [0, 0, 0], length: 6 } // ports at x=-3 (in) / x=3 (out)
 const cnc = { id: 'c', componentType: 'cutting-machine', position: [6, 0, 0] } // width 6: in-port at x=3
 
+test('ordinary belts route four cutters into one trunk, fan to three formers, then fan to two inspectors', () => {
+  const cutters = [-18, -6, 6, 18].map((z, index) => ({ id: `C${index + 1}`, componentType: 'cutting-machine', position: [-40, 0, z] }))
+  const formers = [-16, 0, 16].map((z, index) => ({ id: `F${index + 1}`, componentType: 'forming-machine', position: [20, 0, z] }))
+  const inspectors = [-10, 10].map((z, index) => ({ id: `I${index + 1}`, componentType: 'inspection-machine', position: [78, 0, z] }))
+  let machines = [...cutters, ...formers, ...inspectors]
+  const add = (id, start, end) => {
+    const pieces = layDirectionalConveyorRun(start, end, machines, 0, undefined, { width: 200, depth: 120 })
+    assert.equal(pieces?.length, 1, `could not lay ${id}`)
+    machines = alignMerges(mergeConveyors([...machines, { id, componentType: 'conveyor-belt', ...pieces[0] }]))
+  }
+  add('trunk-cutting', [-20, 0], [-10, 0])
+  cutters.forEach((machine) => add(`cut-${machine.id}`, [-37, machine.position[2]], [-20, 0]))
+  formers.forEach((machine) => add(`form-${machine.id}`, [-10, 0], [17, machine.position[2]]))
+  add('trunk-forming', [40, 0], [50, 0])
+  formers.forEach((machine) => add(`merge-${machine.id}`, [23, machine.position[2]], [40, 0]))
+  inspectors.forEach((machine) => add(`inspect-${machine.id}`, [50, 0], [75, machine.position[2]]))
+  for (const machine of [...cutters, ...formers, ...inspectors]) {
+    const ports = connectedPorts(machine, machines)
+    assert.equal(ports.in, machine.componentType !== 'cutting-machine', `${machine.id} input`)
+    assert.equal(ports.out, machine.componentType !== 'inspection-machine', `${machine.id} output`)
+  }
+  assert.equal(linkedAssembly('C1', machines).size, machines.length)
+  assert.equal(conveyorJunctions(machines).filter((joint) => joint.ids.length >= 3).length, 4)
+})
+
+test('custom floor bounds apply to movement, conveyor laying and resizing', () => {
+  const floor = { width: 200, depth: 80 }
+  const outsideDefault = { ...belt, position: [75, 0, 0] }
+  assert.ok(translateAssembly([outsideDefault], new Set(['b']), 'b', [80, 0, 0], false, floor))
+  assert.equal(translateAssembly([outsideDefault], new Set(['b']), 'b', [99, 0, 0], false, floor), null)
+  assert.ok(layDirectionalConveyorRun([65, 0], [85, 0], [], 0, undefined, floor))
+  assert.equal(layDirectionalConveyorRun([65, 0], [85, 0], [], 0), null)
+  assert.ok(resizeConveyorLayout('b', [outsideDefault], 8, floor))
+  assert.equal(resizeConveyorLayout('b', [outsideDefault], 8), null)
+})
+
+test('independently detaching belt ends releases the correct machine and can be re-enabled', () => {
+  const raw = { id: 'raw', componentType: 'raw-material', position: [-6, 0, 0] }
+  const items = [raw, belt, cnc]
+  assert.deepEqual(connectedPorts(belt, items), { in: true, out: true })
+  const inputDetached = [raw, { ...belt, disconnectedIn: true }, cnc]
+  assert.deepEqual(connectedPorts(inputDetached[1], inputDetached), { in: false, out: true })
+  assert.deepEqual([...movementAssembly('b', inputDetached)].sort(), ['b', 'c'])
+  assert.deepEqual([...movementAssembly('raw', inputDetached)], ['raw'])
+  const outputDetached = [raw, { ...belt, disconnectedOut: true }, cnc]
+  assert.deepEqual(connectedPorts(outputDetached[1], outputDetached), { in: true, out: false })
+  assert.deepEqual([...movementAssembly('b', outputDetached)].sort(), ['b', 'raw'])
+  assert.deepEqual([...movementAssembly('c', outputDetached)], ['c'])
+  const bothDetached = [raw, { ...belt, disconnectedIn: true, disconnectedOut: true }, cnc]
+  assert.deepEqual([...movementAssembly('b', bothDetached)], ['b'])
+  const reenabled = [raw, { ...belt, disconnectedIn: false, disconnectedOut: true }, cnc]
+  assert.deepEqual(connectedPorts(reenabled[1], reenabled), { in: true, out: false })
+})
+
+test('detached belt endpoints do not join neighboring belts or fuse when they overlap', () => {
+  const next = { id: 'next', componentType: 'conveyor-belt', position: [5, 0, 0], length: 4 }
+  const items = [{ ...belt, disconnectedOut: true }, next]
+  assert.equal(linkedAssembly('b', items).size, 1)
+  assert.equal(movementAssembly('b', items).size, 1)
+  assert.equal(mergeConveyors(items).length, 2)
+})
+
+test('labelled conveyor pieces stay separate when adjoining pieces would otherwise fuse', () => {
+  const next = { id: 'next', componentType: 'conveyor-belt', position: [5, 0, 0], length: 4 }
+  assert.equal(mergeConveyors([belt, next]).length, 1)
+  for (const items of [[{ ...belt, displayLabel: 'Inbound' }, next], [belt, { ...next, displayLabel: 'Outbound' }]]) {
+    assert.equal(mergeConveyors(items).length, 2)
+    assert.equal(linkedAssembly('b', items).size, 2)
+  }
+})
+
+test('a detached end on a workstation does not pull the platform or its disconnected machine', () => {
+  const host = { id: 'ws', componentType: 'workstation', position: [0, 0, 0], length: 30, breadth: 20 }
+  const raw = { id: 'raw', componentType: 'raw-material', position: [-6, 0, 0], workstationId: 'ws' }
+  const mountedBelt = { ...belt, workstationId: 'ws', disconnectedIn: true }
+  const mountedCnc = { ...cnc, workstationId: 'ws' }
+  assert.deepEqual([...movementAssembly('b', [host, raw, mountedBelt, mountedCnc])].sort(), ['b', 'c'])
+})
+
+test('a shared convergence separates when either arriving outlet is detached', () => {
+  const a = { ...belt, id: 'a', angle: 0 }
+  const b = { ...belt, id: 'branch', angle: 0 }
+  assert.equal(linkedAssembly('a', [a, b]).size, 2)
+  assert.equal(linkedAssembly('a', [a, { ...b, disconnectedOut: true }]).size, 1)
+  assert.equal(linkedAssembly('a', [{ ...a, disconnectedOut: true }, b]).size, 1)
+})
+
 test('three incoming belts share one exact output merge and can be extended downstream', () => {
   const trunk = { ...belt, id: 'center', length: 24, position: [0, 0, 0], angle: 0 }
   const machines = [trunk]
@@ -133,6 +220,48 @@ test('diagonal drag can cross a workstation edge with connected raised and floor
   assert.equal(pieces[1].workstationId, undefined)
   const machines = [host, ...pieces.map((piece, index) => ({ id: `p${index}`, componentType: 'conveyor-belt', ...piece }))]
   assert.equal(surfaceTransitions(machines).length, 1)
+})
+
+test('one conveyor drag joins machines on separate workstations through both deck edges', () => {
+  const left = { id: 'left', componentType: 'workstation', position: [0, 0, 0] }
+  const right = { id: 'right', componentType: 'workstation', position: [30, 0, 0] }
+  const cutter = { id: 'cutter', componentType: 'cutting-machine', position: [0, 0, 0], workstationId: 'left' }
+  const former = { id: 'former', componentType: 'forming-machine', position: [30, 0, 0], workstationId: 'right' }
+  const pieces = layDirectionalConveyorRun([3, 0], [27, 0], [left, right, cutter, former], 0, 'left')
+  assert.deepEqual(pieces?.map((piece) => piece.workstationId), ['left', undefined, 'right'])
+  assert.deepEqual(pieces?.map((piece) => piece.length), [6, 12, 6])
+  const belts = pieces.map((piece, index) => ({ id: `belt-${index}`, componentType: 'conveyor-belt', ...piece }))
+  const machines = [left, right, cutter, former, ...belts]
+  assert.deepEqual(beltEnds(belts[0]).start, [3, 0])
+  assert.deepEqual(beltEnds(belts[2]).end, [27, 0])
+  assert.equal(surfaceTransitions(machines).length, 2)
+  assert.equal(connectedPorts(cutter, machines).out, true)
+  assert.equal(connectedPorts(former, machines).in, true)
+  assert.ok(belts.every((piece) => connectedPorts(piece, machines).in && connectedPorts(piece, machines).out))
+})
+
+test('a floor conveyor can snap onto a machine inside a workstation', () => {
+  const station = { id: 'station', componentType: 'workstation', position: [20, 0, 0] }
+  const machine = { id: 'machine', componentType: 'cutting-machine', position: [20, 0, 0], workstationId: 'station' }
+  const pieces = layDirectionalConveyorRun([0, 0], [17.6, 0], [station, machine], 0)
+  assert.deepEqual(pieces?.map((piece) => piece.workstationId), [undefined, 'station'])
+  const belts = pieces.map((piece, index) => ({ id: `belt-${index}`, componentType: 'conveyor-belt', ...piece }))
+  assert.deepEqual(beltEnds(belts[1]).end, [17, 0])
+  assert.equal(connectedPorts(machine, [station, machine, ...belts]).in, true)
+})
+
+test('a conveyor descending from a workstation converges onto the floor belt spine', () => {
+  const station = { id: 'station', componentType: 'workstation', position: [0, 0, 0] }
+  const cutter = { id: 'cutter', componentType: 'cutting-machine', position: [0, 0, 0], workstationId: 'station' }
+  const trunk = { id: 'trunk', componentType: 'conveyor-belt', position: [20, 0, 0], length: 16, angle: 0 }
+  const pieces = layDirectionalConveyorRun([3, 0], [20, 0.6], [station, cutter, trunk], 0, 'station')
+  assert.deepEqual(pieces?.map((piece) => piece.workstationId), ['station', undefined])
+  const belts = pieces.map((piece, index) => ({ id: `feed-${index}`, componentType: 'conveyor-belt', ...piece }))
+  const machines = [station, cutter, trunk, ...belts]
+  assert.equal(surfaceTransitions(machines).length, 1)
+  assert.equal(connectedPorts(belts[1], machines).out, true)
+  assert.equal(connectedPorts(trunk, machines).in, true)
+  assert.ok(Math.abs(tangentAngle(belts[1], 1)) < 1e-8)
 })
 
 test('a candidate snaps its in-port onto a nearby out-port', () => {
@@ -370,4 +499,15 @@ test('converging branches arrive tangent to the trunk leaving the merge node', (
   for (const id of ['upper', 'lower']) assert.ok(Math.abs(tangentAngle(machines.find((m) => m.id === id), 1) - tangentAngle(trunk, 0)) < 1e-9)
   const chain = [belt('a', [0, 0], [10, 0]), belt('b', [10, 0], [20, 5], { entryAngle: 0 })]
   assert.equal(alignMerges(chain), chain)
+})
+
+test('belts touching a platform or its machines travel with the platform even when they are not flow-mated', () => {
+  const ws = { id: 'ws', componentType: 'workstation', position: [0, 0, 0], length: 18, breadth: 14 }
+  const inset = { id: 'm', componentType: 'cutting-machine', position: [0, 0, 0], workstationId: 'ws' } // inset: not at the platform edge
+  const reversed = { ...belt, id: 'reversed', position: [-6, 0, 0], rotation: 2 } // starts at the machine's in-port and flows away
+  const floorBelt = { ...belt, id: 'floor', position: [12, 0, 0] } // ends at the platform edge x=9
+  const far = { ...belt, id: 'far', position: [40, 0, 20] }
+  const machines = [ws, inset, reversed, floorBelt, far]
+  assert.deepEqual([...movementAssembly('ws', machines)].sort(), ['floor', 'm', 'reversed', 'ws'])
+  assert.deepEqual(translateAssembly(machines, movementAssembly('ws', machines), 'ws', [5, 0, 0]).map((machine) => machine.position[0]), [5, 5, -1, 17, 40])
 })

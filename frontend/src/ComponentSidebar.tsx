@@ -1,9 +1,24 @@
+import { useEffect, useState } from 'react'
 import { MAX_LENGTH, MAX_STORAGE_SIZE, MIN_LENGTH } from './connections'
-import { FACTORY_COMPONENTS, machineDepth, machineWidth, type PlacedMachine, type FactoryComponent, type FactoryComponentType, type EditorMode } from './factoryComponents'
+import { FACTORY_COMPONENTS, getFactoryComponent, machineDepth, machineWidth, type PlacedMachine, type FactoryComponent, type FactoryComponentType, type EditorMode } from './factoryComponents'
+
+function ComponentLabelEditor({ machine, locked, onSave }: { machine: PlacedMachine; locked: boolean; onSave: (label: string) => void }) {
+  const [draft, setDraft] = useState(machine.displayLabel ?? '')
+  useEffect(() => { setDraft(machine.displayLabel ?? '') }, [machine.id, machine.displayLabel])
+  const changed = draft.trim() !== (machine.displayLabel ?? '')
+  return <form className="mt-4 border-t border-[#d4dfe7] pt-4" onSubmit={(event) => { event.preventDefault(); onSave(draft.trim()) }}>
+    <label htmlFor="component-label" className="text-xs font-semibold">Label for {getFactoryComponent(machine.componentType).name.toLowerCase()}</label>
+    <div className="mt-2 flex gap-2">
+      <input id="component-label" type="text" maxLength={60} value={draft} disabled={locked} onChange={(event) => setDraft(event.target.value)} placeholder={machine.label ?? 'Add a label'} className="min-w-0 flex-1 rounded-md border border-[#b3c0ca] bg-white px-2 py-2 text-xs focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#28649b] disabled:opacity-50" />
+      <button type="submit" disabled={locked || !changed} className="rounded-md border border-[#b3c0ca] bg-white px-3 text-xs font-semibold hover:bg-[#e7eff6] disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#28649b]">Save</button>
+    </div>
+    <p className="mt-1 text-[11px] leading-4 text-[#4c606e]">Clear the field and save to remove the custom label.</p>
+  </form>
+}
 
 function ComponentShape({ component }: { component: FactoryComponent }) {
   return (
-    <svg viewBox="0 0 56 56" fill="none" className="size-12 shrink-0" style={{ color: component.color }} aria-hidden="true">
+    <svg viewBox="0 0 56 56" fill="none" className="size-8 shrink-0" style={{ color: component.color }} aria-hidden="true">
       <path d="m7 38 24-12 18 9-24 12L7 38Z" fill="#9aaab3" />
       <path d="M7 38v7l18 9v-7L7 38Zm18 9 24-12v7L25 54v-7Z" fill="#526a76" />
       {component.shape === 'conveyor' && <>
@@ -59,7 +74,9 @@ function LengthButton({ label, symbol, length, onResize, disabled }: { label: st
   )
 }
 
-export function ComponentSidebar({ editorMode, machineCount, selectedConveyor, selectedStorage, selectedCount, selectedGroupSize, selectedLocked, canUngroup, onGroup, onUngroup, onToggleLock, onResize, canResizeConveyor, onResizeStorage, canResizeStorage, canDelete, onDelete, canUndo, onUndo, onSelect, onCancel, onLoadPreset }: {
+export function ComponentSidebar({ editorMode, machineCount, selectedMachine, onSaveLabel, selectedConveyor, selectedStorage, selectedCount, selectedGroupSize, selectedLocked, canUngroup, onGroup, onUngroup, onToggleLock, onResize, canResizeConveyor, onResizeStorage, canResizeStorage, canDelete, onDelete, canUndo, onUndo, onSelect, onCancel }: {
+  selectedMachine?: PlacedMachine
+  onSaveLabel: (label: string) => void
   canDelete: boolean
   onDelete: () => void
   canUndo: boolean
@@ -81,8 +98,9 @@ export function ComponentSidebar({ editorMode, machineCount, selectedConveyor, s
   machineCount: number
   onSelect: (type: FactoryComponentType) => void
   onCancel: () => void
-  onLoadPreset: () => void
 }) {
+  const [expanded, setExpanded] = useState(true)
+  const [selectionExpanded, setSelectionExpanded] = useState(false)
   const selected = editorMode.mode === 'placement'
     ? FACTORY_COMPONENTS.find((component) => component.type === editorMode.componentType)
     : undefined
@@ -90,33 +108,35 @@ export function ComponentSidebar({ editorMode, machineCount, selectedConveyor, s
   return (
     <aside
       aria-labelledby="component-palette-title"
-      className="pointer-events-auto absolute top-[92px] left-7 z-10 max-h-[calc(100svh-228px)] w-[272px] overflow-y-auto rounded-xl border border-[#b3c0ca] bg-[#f6f9fb]/95 p-4 text-[#263844] shadow-[0_6px_24px_#2638440a] max-sm:top-20 max-sm:left-[18px] max-sm:w-[238px] max-sm:p-3"
+      className={`pointer-events-auto absolute top-[92px] left-7 z-10 rounded-xl border border-[#b3c0ca] bg-[#f6f9fb]/95 p-4 text-[#263844] shadow-[0_6px_24px_#2638440a] max-sm:top-20 max-sm:left-[18px] max-sm:p-3 ${expanded ? 'w-[272px] max-sm:w-[238px]' : 'w-[160px]'}`}
     >
-      <h2 id="component-palette-title" className="text-base font-semibold tracking-[-0.3px]">Components</h2>
-      <p className="mt-1 text-xs leading-5 text-[#4c606e]">Drag onto the floor to build a line. Place machines on workstations to make a shared cell. Orange marks input; blue marks output.</p>
-
-      <div className="mt-3">
-        <button type="button" onClick={onLoadPreset} className="min-h-9 w-full cursor-pointer rounded-md border border-[#b3c0ca] bg-white px-2 text-xs font-semibold hover:bg-[#e7eff6] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#28649b]">
-          Load six-job factory preset
+      <h2 id="component-palette-title" className="text-base font-semibold tracking-[-0.3px]">
+        <button type="button" aria-expanded={expanded} aria-controls="component-palette-content" onClick={() => setExpanded((value) => !value)} className="flex min-h-9 w-full cursor-pointer items-center justify-between gap-3 rounded-md text-left hover:text-[#28649b] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#28649b]">
+          Components
+          <svg aria-hidden="true" viewBox="0 0 16 16" fill="none" className={`size-4 shrink-0 transition-transform motion-reduce:transition-none ${expanded ? 'rotate-180' : ''}`}><path d="m3.5 6 4.5 4 4.5-4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></svg>
         </button>
-        <p className="mt-1 text-[11px] leading-4 text-[#4c606e]">Nine machines (C1–C4, F1–F3, I1–I2) joined by conveyors between an input and an output dock. Undo restores your layout.</p>
-      </div>
-
-      {selectedCount > 0 && <div className="mt-4 border-t border-[#d4dfe7] pt-4" role="group" aria-label="Selection controls">
-        <p className="text-xs font-semibold">{selectedGroupSize} {selectedGroupSize === 1 ? 'component' : 'components'} selected{selectedLocked ? ' · Locked' : ''}</p>
-        <p className="mt-1 text-xs leading-4 text-[#4c606e]">Connected parts move together. Shift-click to group separate parts; Alt-drag one away to detach it.</p>
-        <div className="mt-3 grid grid-cols-2 gap-2">
+      </h2>
+      <div id="component-palette-content" hidden={!expanded}>
+      {selectedCount > 0 && <div className={`absolute top-0 left-[calc(100%+12px)] rounded-xl border border-[#b3c0ca] bg-[#f6f9fb]/95 p-3 shadow-[0_6px_24px_#2638440a] max-sm:fixed max-sm:top-20 max-sm:right-3 max-sm:left-auto ${selectionExpanded ? 'w-[250px] max-sm:w-[210px]' : 'w-[185px]'}`}>
+      <button type="button" aria-expanded={selectionExpanded} aria-controls="selected-component-controls" onClick={() => setSelectionExpanded((value) => !value)} className="flex min-h-8 w-full items-center justify-between gap-2 rounded-md text-left text-xs font-semibold hover:text-[#28649b] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#28649b]">
+        <span>{selectedGroupSize} {selectedGroupSize === 1 ? 'component' : 'components'} selected{selectedLocked ? ' · Locked' : ''}</span>
+        <svg aria-hidden="true" viewBox="0 0 16 16" fill="none" className={`size-4 shrink-0 ${selectionExpanded ? 'rotate-180' : ''}`}><path d="m3.5 6 4.5 4 4.5-4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></svg>
+      </button>
+      <div id="selected-component-controls" hidden={!selectionExpanded}>
+      <div role="group" aria-label="Selection controls">
+        <div className="mt-2 grid grid-cols-2 gap-2">
           <button type="button" disabled={selectedCount < 2 || selectedLocked} onClick={onGroup} className="min-h-9 rounded-md border border-[#b3c0ca] bg-white px-2 text-xs font-semibold hover:bg-[#e7eff6] disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#28649b]">Group</button>
           <button type="button" disabled={!canUngroup} onClick={onUngroup} className="min-h-9 rounded-md border border-[#b3c0ca] bg-white px-2 text-xs font-semibold hover:bg-[#e7eff6] disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#28649b]">Ungroup</button>
           <button type="button" onClick={onToggleLock} className="col-span-2 min-h-9 rounded-md border border-[#b3c0ca] bg-white px-2 text-xs font-semibold hover:bg-[#e7eff6] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#28649b]">{selectedLocked ? 'Unlock selected' : 'Lock selected'}</button>
         </div>
-      </div>}
+      </div>
+
+      {selectedMachine && <ComponentLabelEditor key={selectedMachine.id} machine={selectedMachine} locked={selectedLocked} onSave={onSaveLabel} />}
 
       {selectedConveyor && (() => {
         const length = machineWidth(selectedConveyor.componentType, selectedConveyor.length)
         return <div className="mt-4 border-t border-[#d4dfe7] pt-4" role="group" aria-label="Conveyor length">
           <p className="text-xs font-semibold">Conveyor length</p>
-          <p className="mt-1 text-xs leading-4 text-[#4c606e]">The connected input stays fixed. Components beyond the output move with the belt.</p>
           <div className="mt-3 flex items-center gap-2">
             <LengthButton label="Shorten conveyor" symbol="−" length={length - 1} disabled={!canResizeConveyor(length - 1)} onResize={onResize} />
             <span className="min-w-12 text-center text-xs tabular-nums">{Number(length.toFixed(1))} units</span>
@@ -130,7 +150,6 @@ export function ComponentSidebar({ editorMode, machineCount, selectedConveyor, s
 
       {selectedStorage && <div className="mt-4 border-t border-[#d4dfe7] pt-4" role="group" aria-label={selectedStorage.componentType === 'workstation' ? 'Workstation size' : 'Deposit size'}>
         <p className="text-xs font-semibold">{selectedStorage.componentType === 'workstation' ? 'Workstation size' : 'Deposit size'}</p>
-        <p className="mt-1 text-xs leading-4 text-[#4c606e]">{selectedStorage.componentType === 'workstation' ? 'Extend the deck in either direction. Mounted machines stay in place.' : 'Grow along the flow or across it.'}</p>
         {(['length', 'breadth'] as const).map((axis) => {
           const size = axis === 'length' ? machineWidth(selectedStorage.componentType, selectedStorage.length) : machineDepth(selectedStorage.componentType, selectedStorage.breadth)
           const minimum = axis === 'length' ? machineWidth(selectedStorage.componentType) : machineDepth(selectedStorage.componentType)
@@ -147,8 +166,10 @@ export function ComponentSidebar({ editorMode, machineCount, selectedConveyor, s
           </div>
         })}
       </div>}
+      </div>
+      </div>}
 
-      <div className="mt-4 flex flex-col gap-2" role="group" aria-label="Factory components">
+      <div className="mt-2 flex flex-col gap-0.5" role="group" aria-label="Factory components">
         {FACTORY_COMPONENTS.map((component) => {
           const active = selected?.type === component.type
           return (
@@ -164,12 +185,11 @@ export function ComponentSidebar({ editorMode, machineCount, selectedConveyor, s
                 onSelect(component.type)
               }}
               onDragEnd={onCancel}
-              className="group flex min-h-[76px] w-full cursor-pointer items-center gap-3 rounded-lg border border-transparent p-2 text-left hover:border-[#b3c0ca] hover:bg-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#28649b] aria-pressed:border-[#28649b] aria-pressed:bg-[#e7eff6] max-sm:gap-2"
+              className="group flex min-h-10 w-full cursor-pointer items-center gap-3 rounded-md border border-transparent px-2 py-1 text-left hover:border-[#b3c0ca] hover:bg-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#28649b] aria-pressed:border-[#28649b] aria-pressed:bg-[#e7eff6] max-sm:gap-2"
             >
               <ComponentShape component={component} />
               <span className="min-w-0 flex-1">
                 <span className="block text-[13px] leading-5 font-semibold">{component.name}</span>
-                <span className="mt-0.5 block text-xs leading-4 text-[#4c606e]">{component.description}</span>
               </span>
               <svg viewBox="0 0 16 16" fill="none" className="size-4 shrink-0 text-[#28649b] opacity-0 group-aria-pressed:opacity-100" aria-hidden="true">
                 <path d="m3 8 3.2 3.2L13 4.5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
@@ -179,7 +199,7 @@ export function ComponentSidebar({ editorMode, machineCount, selectedConveyor, s
         })}
       </div>
 
-      <div className="mt-4 flex gap-2 border-t border-[#d4dfe7] pt-4">
+      <div className="mt-2 flex gap-2 border-t border-[#d4dfe7] pt-2">
         {([['Undo', canUndo, onUndo, 'Ctrl/Cmd+Z'], [selectedGroupSize > 1 ? 'Delete group' : 'Delete', canDelete, onDelete, 'Del']] as const).map(([label, enabled, action, hint]) => (
           <button
             key={label}
@@ -194,16 +214,16 @@ export function ComponentSidebar({ editorMode, machineCount, selectedConveyor, s
         ))}
       </div>
 
-      <div className="mt-4 border-t border-[#d4dfe7] pt-4">
+      <div className="mt-2 border-t border-[#d4dfe7] pt-2">
         <div role="status" aria-live="polite" aria-atomic="true" className="text-xs leading-5 text-[#4c606e]">
           {selected ? (
             <>
               <p className="font-semibold text-[#28649b]">Placement mode</p>
               <p>{selected.name} selected.</p>
-              <p className="mt-1">Move over the floor to preview. Click to place and press R to rotate. For conveyors, drag in any direction. Drag from a blue endpoint dot to extend a belt. Repeat from that same dot to fan out. Finish at an amber input dot to join another belt. Drag across a workstation edge to continue onto the floor.</p>
+              {selected.type === 'conveyor-belt' && <p>Drag from a machine or belt to branch out. End a drag on another belt to merge.</p>}
             </>
-          ) : <p>Select a component to enter placement mode.</p>}
-          <p className="mt-2">{machineCount} {machineCount === 1 ? 'component' : 'components'} placed</p>
+          ) : null}
+          <p>{machineCount} {machineCount === 1 ? 'component' : 'components'} placed</p>
         </div>
         {selected && (
           <button
@@ -215,6 +235,7 @@ export function ComponentSidebar({ editorMode, machineCount, selectedConveyor, s
             <kbd className="text-[11px] font-normal">Esc</kbd>
           </button>
         )}
+      </div>
       </div>
     </aside>
   )

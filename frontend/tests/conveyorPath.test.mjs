@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { Mesh, MeshBasicMaterial, Raycaster, Vector3 } from 'three'
-import { beltPoint, beltTangent } from '../src/conveyorPath.ts'
-import { beltCoverage, sweepBelt } from '../src/conveyorGeometry.ts'
+import { beltPoint, beltTangent, beltTrimParameter } from '../src/conveyorPath.ts'
+import { beltCoverage, rampHeight, sweepBelt, sweepRamp } from '../src/conveyorGeometry.ts'
 
 test('curved conveyor strip has a pickable top face along its entire bend', () => {
   const path = { position: [0, 0, 0], length: 10, angle: 0, entryAngle: -Math.PI / 3 }
@@ -31,4 +31,24 @@ test('overlapping branch strips can open an interior rail while keeping its exte
   assert.ok(open.index.count < full.index.count)
   assert.ok(open.index.count > 0)
   full.dispose(); open.dispose()
+})
+
+test('workstation ramp meets both belt surfaces with flat end tangents', () => {
+  const geometry = sweepRamp(0.5, 0, 2.2, 0.085, 0.635)
+  const positions = geometry.getAttribute('position')
+  assert.ok(Math.abs(positions.getY(0) - (0.5 + 0.635)) < 1e-6)
+  assert.ok(Math.abs(positions.getY(20 * 4) - 0.635) < 1e-6)
+  assert.equal(rampHeight(0.5, 0, 0), 0.25)
+  assert.ok(Math.abs(positions.getY(4) - positions.getY(0)) < 0.004)
+  assert.ok(Math.abs(positions.getY(20 * 4) - positions.getY(19 * 4)) < 0.004)
+  geometry.dispose()
+})
+
+test('curved belt ends reserve one world unit for a workstation ramp', () => {
+  const path = { position: [0, 0, 0], length: 10, angle: 0, entryAngle: -Math.PI / 3, exitAngle: Math.PI / 4 }
+  for (const side of ['start', 'end']) {
+    const t = beltTrimParameter(path, side)
+    const at = beltPoint(path, t), end = beltPoint(path, side === 'start' ? 0 : 1)
+    assert.ok(Math.abs(Math.hypot(at[0] - end[0], at[1] - end[1]) - 1) < 1e-5)
+  }
 })

@@ -1,5 +1,5 @@
 import { Plane, Vector3, type Raycaster } from 'three'
-import { FLOOR_SIZE, fitsFloor, footprint, type FactoryComponentType, type FloorPosition } from './factoryComponents.ts'
+import { DEFAULT_FLOOR_SIZE, fitsFloor, footprint, type FloorSize, type FactoryComponentType, type FloorPosition } from './factoryComponents.ts'
 
 const floorPlane = new Plane(new Vector3(0, 1, 0), 0)
 const DRAG_THRESHOLD = 5
@@ -15,17 +15,16 @@ export function planePoint(raycaster: Raycaster, height: number): [number, numbe
   return point && [point.x, point.z]
 }
 
-export function getSnappedFloorPosition(raycaster: Raycaster, type: FactoryComponentType, extent: [number, number] = footprint(type)): FloorPosition | null {
+export function getSnappedFloorPosition(raycaster: Raycaster, type: FactoryComponentType, extent: [number, number] = footprint(type), floor: FloorSize = DEFAULT_FLOOR_SIZE): FloorPosition | null {
   const point = raycaster.ray.intersectPlane(floorPlane, new Vector3())
   if (!point) return null
 
   const x = Math.round(point.x) || 0
   const z = Math.round(point.z) || 0
-  const halfFloor = FLOOR_SIZE / 2
 
   // Keep the entire footprint on the finite factory floor, not the infinite backdrop.
-  if (Math.abs(point.x) > halfFloor || Math.abs(point.z) > halfFloor ||
-    !fitsFloor(x, z, extent[0], extent[1])) return null
+  if (Math.abs(point.x) > floor.width / 2 || Math.abs(point.z) > floor.depth / 2 ||
+    !fitsFloor(x, z, extent[0], extent[1], floor)) return null
 
   return [x, 0, z]
 }

@@ -24,9 +24,11 @@ class LocalStore:
         path = self._path(name)
         return json.loads(path.read_text()) if path.exists() else None
 
-    def put(self, name: str, machines: list[dict]) -> dict:
+    def put(self, name: str, machines: list[dict], floor: dict | None = None) -> dict:
         LOCAL_DIR.mkdir(parents=True, exist_ok=True)
         doc = {"name": name, "updatedAt": _now(), "machines": machines}
+        if floor is not None:
+            doc["floor"] = floor
         self._path(name).write_text(json.dumps(doc))
         return doc
 
@@ -51,8 +53,10 @@ class FirestoreStore:
         snap = self._col.document(name).get()
         return snap.to_dict() if snap.exists else None
 
-    def put(self, name: str, machines: list[dict]) -> dict:
+    def put(self, name: str, machines: list[dict], floor: dict | None = None) -> dict:
         doc = {"name": name, "updatedAt": _now(), "machines": machines}
+        if floor is not None:
+            doc["floor"] = floor
         self._col.document(name).set(doc)
         return doc
 

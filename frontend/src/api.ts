@@ -1,6 +1,6 @@
 // Typed client for the FastAPI backend (see docs/api.md). Types mirror backend/app/core/schemas.py.
 
-import type { PlacedMachine } from './factoryComponents.ts'
+import { machineDepth, machineWidth, type FloorSize, type PlacedMachine } from './factoryComponents.ts'
 
 export type Stage = 'cutting' | 'forming' | 'inspection'
 export type MachineStatus = 'idle' | 'processing' | 'failed' | 'blocked'
@@ -65,8 +65,11 @@ export const explainSchedule = (scheduleId: string) => request<{ explanation: st
 
 export type LayoutSummary = { name: string; updatedAt: string }
 export const listLayouts = () => request<LayoutSummary[]>('/layouts')
-export const getLayout = (name: string) => request<{ machines: PlacedMachine[] }>(`/layouts/${encodeURIComponent(name)}`)
-export const saveLayout = (name: string, machines: PlacedMachine[]) => request<LayoutSummary>(`/layouts/${encodeURIComponent(name)}`, { machines }, 'PUT')
+export const getLayout = (name: string) => request<{ machines: PlacedMachine[]; floor?: FloorSize }>(`/layouts/${encodeURIComponent(name)}`)
+export const saveLayout = (name: string, machines: PlacedMachine[], floor: FloorSize) => request<LayoutSummary>(`/layouts/${encodeURIComponent(name)}`, {
+  machines: machines.map((machine) => ({ ...machine, length: machineWidth(machine.componentType, machine.length), breadth: machineDepth(machine.componentType, machine.breadth) })),
+  floor,
+}, 'PUT')
 export const deleteLayout = (name: string) => request<{ deleted: string }>(`/layouts/${encodeURIComponent(name)}`, undefined, 'DELETE')
 
 /** Starts an optimization job and polls every second until it finishes (QAOA takes ~10–15 s). */

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { changedOperations, disruptedOperations, type ScheduledOperation } from './api'
 import type { Factory } from './useFactory'
 
@@ -16,9 +16,24 @@ export function ScheduleChart({ factory, selectedLabel, onSelectMachine }: {
   selectedLabel: string | null
   onSelectMachine: (label: string) => void
 }) {
+  const [open, setOpen] = useState(false)
+  const toggleRef = useRef<HTMLButtonElement>(null)
+  return <div className="pointer-events-none absolute bottom-[88px] left-1/2 z-20 flex w-[min(900px,calc(100%-36px))] -translate-x-1/2 flex-col items-center gap-2">
+    {open && <section id="production-schedule-panel" aria-label="Production schedule" className="pointer-events-auto max-h-[calc(100svh-170px)] w-full overflow-auto rounded-xl border border-[#b3c0ca] bg-[#f6f9fb]/95 p-3 text-xs text-[#263844] shadow-[0_6px_24px_#2638440a]">
+      <ScheduleContent factory={factory} selectedLabel={selectedLabel} onSelectMachine={onSelectMachine} onClose={() => { setOpen(false); toggleRef.current?.focus() }} />
+    </section>}
+    <button ref={toggleRef} type="button" aria-expanded={open} aria-controls={open ? 'production-schedule-panel' : undefined} onClick={() => setOpen((value) => !value)} className="pointer-events-auto min-h-10 rounded-md border border-[#b3c0ca] bg-[#f6f9fb] px-4 text-xs font-semibold text-[#263844] shadow-[0_4px_16px_#26384414] hover:bg-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#28649b]">{open ? 'Hide schedule' : 'Show schedule'}</button>
+  </div>
+}
+
+function ScheduleContent({ factory, selectedLabel, onSelectMachine, onClose }: {
+  factory: Factory
+  selectedLabel: string | null
+  onSelectMachine: (label: string) => void
+  onClose: () => void
+}) {
   const { scenario, state, baseline, activeSchedule } = factory
-  const [open, setOpen] = useState(true)
-  if (!scenario || !state || !baseline) return null
+  if (!scenario || !state || !baseline) return <div className="flex items-center justify-between gap-3"><div><h2 className="text-sm font-semibold">Production schedule</h2><p className="mt-1 text-[#4c606e]">Schedule data is unavailable. Check the backend connection.</p></div><button type="button" onClick={onClose} className="rounded-md border border-[#b3c0ca] bg-white px-2 py-1 font-semibold hover:bg-[#e7eff6]">Close</button></div>
 
   const recovered = state.phase === 'recovered' && !!activeSchedule && activeSchedule.scheduleId !== baseline.scheduleId
   const shown = recovered ? activeSchedule : baseline
@@ -51,16 +66,14 @@ export function ScheduleChart({ factory, selectedLabel, onSelectMachine }: {
     >{cancelled && kind === 'solid' ? <span className="rounded-sm bg-[#f6f9fb] px-0.5">{op.jobId} ✕</span> : op.jobId}</button>
   }
 
-  return <section aria-label="Production schedule"
-    className="pointer-events-auto absolute right-[344px] bottom-[88px] left-[316px] z-10 rounded-xl border border-[#b3c0ca] bg-[#f6f9fb]/95 p-3 text-xs text-[#263844] shadow-[0_6px_24px_#2638440a] max-lg:hidden">
+  return <>
     <div className="flex items-center justify-between gap-3">
       <h2 className="text-sm font-semibold">
         Production schedule <span className="font-normal text-[#4c606e]">· {recovered ? `recovery ${shown.scheduleId}` : 'baseline'} · {makespan} min</span>
       </h2>
-      <button type="button" className="cursor-pointer rounded-md border border-[#b3c0ca] bg-white px-2 py-0.5 text-xs font-semibold hover:bg-[#e7eff6]" aria-expanded={open} onClick={() => setOpen(!open)}>{open ? 'Hide' : 'Show'}</button>
+      <button type="button" className="cursor-pointer rounded-md border border-[#b3c0ca] bg-white px-2 py-0.5 text-xs font-semibold hover:bg-[#e7eff6] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#28649b]" onClick={onClose}>Close</button>
     </div>
-    {open && <>
-      <div className="mt-2">
+      <div className="mt-2 min-w-[360px]">
         {scenario.machines.map(({ machineId }) => {
           const isFailed = state.failedMachineIds.includes(machineId)
           return <div key={machineId} className={`flex h-[18px] items-stretch border-b border-[#e1e9ef] ${selectedLabel === machineId ? 'bg-[#dff6fa]' : isFailed ? 'bg-[#fbe9e7]' : ''}`}>
@@ -86,6 +99,5 @@ export function ScheduleChart({ factory, selectedLabel, onSelectMachine }: {
         {failed && <> · <span className="font-semibold text-[#b3362f]">red line = failure</span>{!recovered && ' · hatched = cancelled'}</>}
         {recovered && ' · gold outline = moved, dashed red = original slot'}
       </p>
-    </>}
-  </section>
+  </>
 }

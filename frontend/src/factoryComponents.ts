@@ -1,6 +1,9 @@
 import { beltPoint, beltTangent } from './conveyorPath.ts'
 
 export const FLOOR_SIZE = 100
+export type FloorSize = { width: number; depth: number }
+export const DEFAULT_FLOOR_SIZE: FloorSize = { width: FLOOR_SIZE, depth: FLOOR_SIZE }
+export const MAX_FLOOR_SIZE = 10000
 
 export const FACTORY_COMPONENTS = [
   { type: 'raw-material', name: 'Raw material supply', shape: 'hopper', description: 'Resizable material deposit', color: '#a4773e', dimensions: [6, 2.6, 5] },
@@ -26,10 +29,13 @@ export type PlacedMachine = {
   angle?: number // free-angle conveyor heading in radians; overrides quarter turns
   entryAngle?: number // tangent where a curved conveyor leaves its source
   exitAngle?: number // tangent where a curved conveyor joins its destination
+  disconnectedIn?: boolean // input is deliberately detached even if still touching
+  disconnectedOut?: boolean // output is deliberately detached even if still touching
   groupId?: string // explicit user grouping, in addition to physical port connections
   locked?: boolean
   workstationId?: string // machine mounted on a workstation platform
   label?: string // backend machine ID (C1, F2, I1...) this machine stands for
+  displayLabel?: string // optional user-facing name, independent of the scenario machine ID
 }
 
 export const WORKSTATION_HEIGHT = 0.5
@@ -107,8 +113,15 @@ export function machineFootprint(machine: Pick<PlacedMachine, 'componentType' | 
   return [width * c + depth * s, width * s + depth * c]
 }
 
-export function fitsFloor(x: number, z: number, width: number, depth: number): boolean {
-  return Math.abs(x) + width / 2 <= FLOOR_SIZE / 2 && Math.abs(z) + depth / 2 <= FLOOR_SIZE / 2
+export function fitsFloor(x: number, z: number, width: number, depth: number, floor: FloorSize = DEFAULT_FLOOR_SIZE): boolean {
+  return Math.abs(x) + width / 2 <= floor.width / 2 && Math.abs(z) + depth / 2 <= floor.depth / 2
+}
+
+export function layoutFitsFloor(machines: PlacedMachine[], floor: FloorSize): boolean {
+  return machines.every((machine) => {
+    const [width, depth] = machineFootprint(machine)
+    return fitsFloor(machine.position[0], machine.position[2], width, depth, floor)
+  })
 }
 
 export type EditorMode =

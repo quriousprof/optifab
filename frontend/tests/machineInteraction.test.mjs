@@ -1,7 +1,45 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { BoxGeometry, CylinderGeometry, Mesh, MeshBasicMaterial, OrthographicCamera, Raycaster, Scene, Vector3 } from 'three'
-import { pickMachine, isDoubleMachineClick, getMachineFocus, advanceCameraFocus } from '../src/machineInteraction.ts'
+import { explicitSelection, machinesInRectangle, pickMachine, shouldStartMarquee, isDoubleMachineClick, getMachineFocus, advanceCameraFocus } from '../src/machineInteraction.ts'
+
+test('marquee starts on empty canvas only, preserving component drags, rotation, placement and touch pan', () => {
+  const pointer = { pointerType: 'mouse', button: 0, isPrimary: true, shiftKey: false, altKey: false }
+  assert.equal(shouldStartMarquee(pointer, false, false), true)
+  assert.equal(shouldStartMarquee(pointer, false, true), false)
+  assert.equal(shouldStartMarquee(pointer, true, false), false)
+  for (const change of [{ shiftKey: true }, { altKey: true }, { button: 2 }, { pointerType: 'touch' }, { isPrimary: false }]) {
+    assert.equal(shouldStartMarquee({ ...pointer, ...change }, false, false), false)
+  }
+})
+
+test('selection expands explicit groups only, not physically connected components', () => {
+  const items = [
+    { id: 'a', componentType: 'conveyor-belt', position: [0, 0, 0], length: 6 },
+    { id: 'b', componentType: 'cutting-machine', position: [6, 0, 0], groupId: 'g' },
+    { id: 'c', componentType: 'forming-machine', position: [20, 0, 0], groupId: 'g' },
+  ]
+  assert.deepEqual([...explicitSelection(['a'], items)], ['a'])
+  assert.deepEqual([...explicitSelection(['b'], items)].sort(), ['b', 'c'])
+  assert.deepEqual([...explicitSelection(['a', 'b'], items)].sort(), ['a', 'b', 'c'])
+})
+
+test('rectangle selection intersects projected machine geometry and ignores non-machine meshes', () => {
+  const scene = new Scene()
+  for (const [id, x] of [['left', -4], ['right', 4], [undefined, 0]]) {
+    const mesh = new Mesh(new BoxGeometry(2, 2, 2), new MeshBasicMaterial())
+    mesh.position.x = x
+    if (id) mesh.userData.machineId = id
+    scene.add(mesh)
+  }
+  const camera = new OrthographicCamera(-10, 10, 10, -10, 0.1, 100)
+  camera.position.z = 20
+  camera.updateProjectionMatrix()
+  const viewport = { left: 100, top: 50, width: 200, height: 200 }
+  assert.deepEqual(machinesInRectangle(scene, camera, viewport, { left: 150, top: 130, right: 180, bottom: 170 }), ['left'])
+  assert.deepEqual(machinesInRectangle(scene, camera, viewport, { left: 100, top: 50, right: 300, bottom: 250 }).sort(), ['left', 'right'])
+  assert.deepEqual(machinesInRectangle(scene, camera, viewport, { left: 195, top: 145, right: 205, bottom: 155 }), [])
+})
 
 test('machine picking ignores the ghost and floor and chooses the nearest solid machine', () => {
   const scene = new Scene()

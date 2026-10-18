@@ -6,9 +6,10 @@ import { ComponentSidebar } from './ComponentSidebar'
 import { MachineInspector, RecoveryPanel } from './TwinPanel'
 import { ScheduleChart } from './ScheduleChart'
 import { useFactory } from './useFactory'
-import { presetLayout } from './presetLayout'
 import { alignMerges, assemblyLocked, linkedAssembly, mergeConveyors, movementAssembly, resizeConveyorLayout, resizeStorage, rotateMachine, translateAssembly, workstationForFootprint, type Laid } from './connections'
-import { autoLabel, FLOOR_SIZE, isResizableAreaType, relabel, type EditorMode, type FactoryComponentType, type FloorPosition, type PlacedMachine } from './factoryComponents'
+import { autoLabel, DEFAULT_FLOOR_SIZE, isResizableAreaType, layoutFitsFloor, relabel, type FloorSize, type EditorMode, type FactoryComponentType, type FloorPosition, type PlacedMachine } from './factoryComponents'
+import { explicitSelection } from './machineInteraction'
+import { FloorSizeControl } from './FloorSizeControl'
 
 export function App() {
   const factory = useFactory()
@@ -16,31 +17,29 @@ export function App() {
   const [editorMode, setEditorMode] = useState<EditorMode>({ mode: 'navigate' })
   const [placementRotation, setPlacementRotation] = useState(0)
   const [activeMachines, setActiveMachines] = useState<PlacedMachine[]>([])
+  const [floor, setFloor] = useState<FloorSize>(DEFAULT_FLOOR_SIZE)
+  const floorRef = useRef(floor)
+  floorRef.current = floor
   const [selectedMachineIds, setSelectedMachineIds] = useState<string[]>([])
+  const selectedIdsRef = useRef(selectedMachineIds)
+  selectedIdsRef.current = selectedMachineIds
   const selectedMachineId = selectedMachineIds.at(-1) ?? null
   const [focusRequest, setFocusRequest] = useState<{ machineId: string; version: number } | null>(null)
   // Undo: every edit pushes the previous layout (immutable arrays, so snapshots are cheap).
   const machinesRef = useRef(activeMachines)
   machinesRef.current = activeMachines
-  const history = useRef<PlacedMachine[][]>([])
+  const history = useRef<{ machines: PlacedMachine[]; floor: FloorSize }[]>([])
   const dragging = useRef(false) // a whole drag is one undo step
   const dragIds = useRef<Set<string> | null>(null)
   const [undoDepth, setUndoDepth] = useState(0)
   const checkpoint = useCallback(() => {
-    history.current = [...history.current.slice(-99), machinesRef.current]
+    history.current = [...history.current.slice(-99), { machines: machinesRef.current, floor: floorRef.current }]
     setUndoDepth(history.current.length)
   }, [])
-  const loadPreset = useCallback(() => {
-    checkpoint()
-    setActiveMachines(presetLayout())
-    setSelectedMachineIds([])
-    setEditorMode({ mode: 'navigate' })
-    setFocusRequest(null)
-    setFitVersion((version) => version + 1)
-  }, [checkpoint])
-  const loadLayout = useCallback((machines: PlacedMachine[]) => {
+  const loadLayout = useCallback((machines: PlacedMachine[], savedFloor?: FloorSize) => {
     checkpoint()
     setActiveMachines(machines)
+    setFloor(savedFloor ?? DEFAULT_FLOOR_SIZE)
     setSelectedMachineIds([])
     setEditorMode({ mode: 'navigate' })
     setFocusRequest(null)
@@ -52,16 +51,33 @@ export function App() {
     dragging.current = false
     dragIds.current = null
     setUndoDepth(history.current.length)
-    setActiveMachines(previous)
+    setActiveMachines(previous.machines)
+    setFloor(previous.floor)
   }, [])
   const selectMachine = useCallback((id: string | null, additive = false) => {
-    setSelectedMachineIds((current) => !id ? [] : additive ? current.includes(id) ? current.filter((item) => item !== id) : [...current, id] : [id])
+    setSelectedMachineIds((current) => {
+      if (!id) return []
+      const group = explicitSelection([id], machinesRef.current)
+      const members = [...group].filter((item) => item !== id).concat(id)
+      return additive ? current.some((item) => group.has(item)) ? current.filter((item) => !group.has(item)) : [...current, ...members] : members
+    })
     setFocusRequest(null)
     if (id) setEditorMode({ mode: 'navigate' })
+  }, [])
+  const selectRectangle = useCallback((ids: string[], additive: boolean) => {
+    setSelectedMachineIds((current) => [...explicitSelection(additive ? [...current, ...ids] : ids, machinesRef.current)])
+    setFocusRequest(null)
   }, [])
   const focusMachine = useCallback((machineId: string) => {
     setFocusRequest((previous) => ({ machineId, version: (previous?.version ?? 0) + 1 }))
   }, [])
+  const toggleEndpoint = useCallback((id: string, side: 'in' | 'out') => {
+    const machine = machinesRef.current.find((item) => item.id === id && item.componentType === 'conveyor-belt')
+    if (!machine || assemblyLocked(movementAssembly(id, machinesRef.current), machinesRef.current)) return
+    const key = side === 'in' ? 'disconnectedIn' : 'disconnectedOut'
+    checkpoint()
+    setActiveMachines((machines) => machines.map((item) => item.id === id ? { ...item, [key]: !item[key] } : item))
+  }, [checkpoint])
   const placeMachine = useCallback((componentType: FactoryComponentType, position: FloorPosition, options: PlaceOptions = {}) => {
     const machine: PlacedMachine = { id: crypto.randomUUID(), componentType, position, ...options }
     checkpoint()
@@ -77,18 +93,20 @@ export function App() {
   const moveMachine = useCallback((id: string, position: FloorPosition, detach = false) => {
     const dragged = machinesRef.current.find((machine) => machine.id === id)
     if (!dragged) return
-    const fullAssembly = movementAssembly(id, machinesRef.current)
+    const selected = explicitSelection(selectedIdsRef.current, machinesRef.current)
+    const movingIds = selected.size > 1 && selected.has(id) && !detach ? selected : new Set([id])
+    const fullAssembly = new Set([...movingIds].flatMap((item) => [...movementAssembly(item, machinesRef.current)]))
     if (assemblyLocked(fullAssembly, machinesRef.current)) return
     const detachComponent = detach && dragged.componentType !== 'workstation'
     const ids = dragIds.current ?? (detachComponent ? new Set([id]) : fullAssembly)
-    if (!translateAssembly(machinesRef.current, ids, id, position, detachComponent)) return
+    if (!translateAssembly(machinesRef.current, ids, id, position, detachComponent, floorRef.current)) return
     if (!dragging.current) {
       dragIds.current = ids
       dragging.current = true
       checkpoint()
     }
     setActiveMachines((machines) => {
-      const moved = translateAssembly(machines, ids, id, position, detachComponent)
+      const moved = translateAssembly(machines, ids, id, position, detachComponent, floorRef.current)
       return moved && detachComponent ? moved.map((machine) => machine.id === id ? {
         ...machine,
         groupId: undefined,
@@ -106,13 +124,13 @@ export function App() {
   useEffect(() => {
     setSelectedMachineIds((ids) => ids.every((id) => activeMachines.some((machine) => machine.id === id)) ? ids : ids.filter((id) => activeMachines.some((machine) => machine.id === id)))
   }, [activeMachines])
-  const selectedAssemblyIds = new Set(selectedMachineIds.flatMap((id) => [...linkedAssembly(id, activeMachines)]))
+  const selectedAssemblyIds = explicitSelection(selectedMachineIds, activeMachines)
   const selectedLocked = assemblyLocked(selectedAssemblyIds, activeMachines)
   const selectedGroupSize = selectedAssemblyIds.size
   const canUngroup = activeMachines.some((machine) => selectedAssemblyIds.has(machine.id) && !!machine.groupId)
   const resizeSelected = useCallback((length: number) => {
     if (selectedLocked || !selectedMachineId) return
-    const resized = resizeConveyorLayout(selectedMachineId, machinesRef.current, length)
+    const resized = resizeConveyorLayout(selectedMachineId, machinesRef.current, length, floorRef.current)
     if (!resized) return
     checkpoint()
     setActiveMachines(resized)
@@ -121,7 +139,7 @@ export function App() {
     if (selectedLocked) return
     const machine = machinesRef.current.find((item) => item.id === selectedMachineId)
     if (!machine) return
-    const resized = resizeStorage(machine, machinesRef.current, axis, size)
+    const resized = resizeStorage(machine, machinesRef.current, axis, size, floorRef.current)
     if (resized === machine) return
     checkpoint()
     setActiveMachines((machines) => machines.map((item) => item.id === machine.id ? resized : item))
@@ -133,7 +151,7 @@ export function App() {
       machine.workstationId && selectedAssemblyIds.has(machine.workstationId) ? { ...machine, workstationId: undefined } : machine))
   }, [selectedMachineId, selectedLocked, selectedAssemblyIds, checkpoint])
   const groupSelected = () => {
-    if (selectedMachineIds.length < 2 || selectedLocked) return
+    if (selectedGroupSize < 2 || selectedLocked) return
     const groupId = crypto.randomUUID()
     checkpoint()
     setActiveMachines((machines) => machines.map((machine) => selectedAssemblyIds.has(machine.id) ? { ...machine, groupId } : machine))
@@ -160,11 +178,12 @@ export function App() {
       className="factory-app"
       aria-label="Factory floor viewer"
       onKeyDown={(event) => {
+        if (event.target instanceof HTMLElement && event.target.closest('input, textarea, select, [contenteditable="true"]')) return
         if (event.key.toLowerCase() === 'r' && !event.repeat && !event.ctrlKey && !event.metaKey && !event.altKey) {
           if (editorMode.mode === 'placement') setPlacementRotation((turns) => (turns + 1) % 4)
           else if (selectedMachineId && !selectedLocked && selectedGroupSize === 1) {
             checkpoint()
-            setActiveMachines((machines) => mergeConveyors(machines.map((m) => (m.id === selectedMachineId ? rotateMachine(m) : m)), selectedMachineId))
+            setActiveMachines((machines) => mergeConveyors(machines.map((m) => (m.id === selectedMachineId ? rotateMachine(m, floorRef.current) : m)), selectedMachineId))
           }
         }
         if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z') {
@@ -190,6 +209,7 @@ export function App() {
       }}
     >
       <FactoryViewport
+        floor={floor}
         fitVersion={fitVersion}
         placementType={editorMode.mode === 'placement' ? editorMode.componentType : null}
         placementRotation={placementRotation}
@@ -199,7 +219,9 @@ export function App() {
         lockedIds={new Set(activeMachines.filter((machine) => assemblyLocked(linkedAssembly(machine.id, activeMachines), activeMachines)).map((machine) => machine.id))}
         focusRequest={focusRequest}
         onSelect={selectMachine}
+        onSelectRectangle={selectRectangle}
         onFocus={focusMachine}
+        onToggleEndpoint={toggleEndpoint}
         onPlace={placeMachine}
         onPlaceRun={placeConveyorRun}
         onMove={moveMachine}
@@ -227,9 +249,16 @@ export function App() {
       <ComponentSidebar
         editorMode={editorMode}
         machineCount={activeMachines.length}
+        selectedMachine={activeMachines.find((machine) => machine.id === selectedMachineId)}
+        onSaveLabel={(label) => {
+          const machine = machinesRef.current.find((item) => item.id === selectedMachineId)
+          if (!machine || selectedLocked || (machine.displayLabel ?? '') === label) return
+          checkpoint()
+          setActiveMachines((machines) => machines.map((item) => item.id === machine.id ? { ...item, displayLabel: label || undefined } : item))
+        }}
         selectedConveyor={selectedLocked ? undefined : activeMachines.find((m) => m.id === selectedMachineId && m.componentType === 'conveyor-belt')}
         selectedStorage={selectedLocked ? undefined : selectedStorage}
-        selectedCount={selectedMachineIds.length}
+        selectedCount={selectedGroupSize}
         selectedGroupSize={selectedGroupSize}
         selectedLocked={selectedLocked}
         canUngroup={canUngroup && !selectedLocked}
@@ -238,12 +267,12 @@ export function App() {
         onToggleLock={toggleLock}
         onResize={resizeSelected}
         canResizeConveyor={(length) => {
-          return !selectedLocked && !!selectedMachineId && !!resizeConveyorLayout(selectedMachineId, activeMachines, length)
+          return !selectedLocked && !!selectedMachineId && !!resizeConveyorLayout(selectedMachineId, activeMachines, length, floor)
         }}
         onResizeStorage={resizeSelectedStorage}
         canResizeStorage={(axis, size) => {
           const machine = activeMachines.find((item) => item.id === selectedMachineId)
-          return !selectedLocked && !!machine && resizeStorage(machine, activeMachines, axis, size) !== machine
+          return !selectedLocked && !!machine && resizeStorage(machine, activeMachines, axis, size, floor) !== machine
         }}
         canDelete={selectedMachineId !== null && !selectedLocked}
         onDelete={deleteSelected}
@@ -255,7 +284,6 @@ export function App() {
           setEditorMode({ mode: 'placement', componentType })
         }}
         onCancel={() => setEditorMode({ mode: 'navigate' })}
-        onLoadPreset={loadPreset}
       />
 
       <header className="viewport-header">
@@ -268,18 +296,21 @@ export function App() {
           <span className="header-divider" aria-hidden="true" />
           <h1>Factory floor</h1>
         </div>
-        <LayoutMenu machines={activeMachines} onLoad={loadLayout} />
+        <LayoutMenu machines={activeMachines} floor={floor} onLoad={loadLayout} />
       </header>
 
       <footer className="viewport-footer">
         <div className="floor-caption">
-          <span className="floor-size">{FLOOR_SIZE} × {FLOOR_SIZE} <span>scene units</span></span>
-          <span className="grid-caption">Grid spacing: 1 unit</span>
+          <FloorSizeControl floor={floor} onApply={(next) => {
+            if (!layoutFitsFloor(machinesRef.current, next)) return 'Some components would be outside the floor. Move them or choose a larger size.'
+            if (next.width !== floor.width || next.depth !== floor.depth) { checkpoint(); setFloor(next) }
+            return null
+          }} />
         </div>
         <p className="control-hints" id="viewport-help">
           {editorMode.mode === 'placement' && <span>Click to place; drag a conveyor in any direction; start or finish on a belt to branch or merge; R rotates</span>}
           {editorMode.mode === 'navigate' && activeMachines.length > 0 && <span>Click to inspect; double-click to focus; drag to move; R rotates; Delete removes; Ctrl/Cmd+Z undoes</span>}
-          <span>Drag to move; Shift-drag to rotate and tilt</span>
+          <span>Drag empty space to select; Shift-drag to rotate and tilt</span>
           <span>Right-drag / arrows to pan</span>
           <span>Scroll / pinch to zoom</span>
         </p>

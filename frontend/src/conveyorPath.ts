@@ -34,6 +34,25 @@ export function beltPoint(belt: BeltPath, t: number): Point {
     u ** 3 * p0[1] + 3 * u ** 2 * t * p1[1] + 3 * u * t ** 2 * p2[1] + t ** 3 * p3[1]]
 }
 
+/** Parameter one world unit from an endpoint, used to leave room for a height transition. */
+export function beltTrimParameter(belt: BeltPath, side: 'start' | 'end', distance = 1): number {
+  const atStart = side === 'start'
+  const endpoint = beltPoint(belt, atStart ? 0 : 1)
+  let low = atStart ? 0 : 0.55, high = atStart ? 0.45 : 1
+  const distanceAt = (t: number) => {
+    const point = beltPoint(belt, t)
+    return Math.hypot(point[0] - endpoint[0], point[1] - endpoint[1])
+  }
+  if (atStart && distanceAt(high) < distance) return high
+  if (!atStart && distanceAt(low) < distance) return low
+  for (let index = 0; index < 24; index++) {
+    const mid = (low + high) / 2
+    if (atStart ? distanceAt(mid) < distance : distanceAt(mid) > distance) low = mid
+    else high = mid
+  }
+  return (low + high) / 2
+}
+
 export function beltTangent(belt: BeltPath, t: number): Point {
   const [p0, p1, p2, p3] = beltControls(belt)
   const u = 1 - t

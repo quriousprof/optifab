@@ -21,8 +21,7 @@ body { margin: 0; }
 }
 
 .factory-app canvas { touch-action: none; }
-.factory-canvas canvas { cursor: grab; }
-.factory-canvas canvas:active { cursor: grabbing; }
+.factory-canvas canvas { cursor: default; }
 .factory-canvas--placement canvas,
 .factory-canvas--placement canvas:active { cursor: crosshair; }
 .factory-canvas:focus-visible { outline: 2px solid #28649b; outline-offset: -4px; }
@@ -111,6 +110,7 @@ h1 { margin: 0; font-size: 15px; font-weight: 500; }
 
 /* Digital twin: backend machine labels and inspector */
 .machine-label { display: inline-flex; gap: 5px; align-items: baseline; padding: 2px 7px; font-size: 11px; font-weight: 650; color: #263844; background: #f6f9fbee; border: 1px solid #b3c0ca; border-radius: 5px; white-space: nowrap; }
+.machine-label-text { max-width: 160px; overflow: hidden; text-overflow: ellipsis; }
 .machine-label small { font-size: 9px; font-weight: 600; text-transform: uppercase; }
 .machine-label[data-status='processing'] { border-color: #2f9e5f; }
 .machine-label[data-status='failed'] { color: #fff; background: #d23b32; border-color: #d23b32; }
