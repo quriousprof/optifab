@@ -111,7 +111,7 @@ export function ComponentSidebar({ editorMode, machineCount, selectedConveyor, s
           <p className="mt-1 text-xs leading-4 text-[#4c606e]">The connected input stays fixed. Components beyond the output move with the belt.</p>
           <div className="mt-3 flex items-center gap-2">
             <LengthButton label="Shorten conveyor" symbol="−" length={length - 1} disabled={!canResizeConveyor(length - 1)} onResize={onResize} />
-            <span className="min-w-12 text-center text-xs tabular-nums">{length} units</span>
+            <span className="min-w-12 text-center text-xs tabular-nums">{Number(length.toFixed(1))} units</span>
             <LengthButton label="Lengthen conveyor" symbol="+" length={length + 1} disabled={!canResizeConveyor(length + 1)} onResize={onResize} />
           </div>
           <input type="range" aria-label="Conveyor length" min={MIN_LENGTH} max={MAX_LENGTH} value={length}
@@ -192,7 +192,7 @@ export function ComponentSidebar({ editorMode, machineCount, selectedConveyor, s
             <>
               <p className="font-semibold text-[#28649b]">Placement mode</p>
               <p>{selected.name} selected.</p>
-              <p className="mt-1">Move over the floor to preview. Click to place and press R to rotate. Drag a conveyor across a workstation edge to continue the belt onto the floor. Ends snap together: a blue output meets an orange input and both turn green.</p>
+              <p className="mt-1">Move over the floor to preview. Click to place and press R to rotate. For conveyors, drag in any direction. Start on a belt to branch; finish on another belt to merge. Drag across a workstation edge to continue onto the floor.</p>
             </>
           ) : <p>Select a component to enter placement mode.</p>}
           <p className="mt-2">{machineCount} {machineCount === 1 ? 'component' : 'components'} placed</p>

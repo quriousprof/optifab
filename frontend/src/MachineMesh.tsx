@@ -86,7 +86,30 @@ export function TransitionMesh({ center, rotation, fromHeight, toHeight, highlig
   </group>
 }
 
-export function MachineMesh({ componentType, position, ghost = false, machineId, selected = false, highlighted = false, locked = false, mounted = false, transitionIn = false, transitionOut = false, groupSize = 1, onDelete, length, breadth, rotation = 0, ports }: {
+/** Low transfer plate covers the seam where a belt fans out or merges into a trunk. */
+export function JunctionMesh({ center, angle, elevation, highlighted }: { center: [number, number]; angle: number; elevation: number; highlighted: boolean }) {
+  return <group position={[center[0], elevation, center[1]]} rotation={[0, angle, 0]}>
+    <mesh position={[0, 0.69, 0]} castShadow receiveShadow raycast={noRaycast}>
+      <boxGeometry args={[2.28, 0.17, 2.28]} />
+      <meshStandardMaterial color="#334b50" roughness={0.62} metalness={0.18} />
+      {highlighted && <Edges color="#29edff" lineWidth={1.8} toneMapped={false} depthTest={false} raycast={noRaycast} />}
+    </mesh>
+    <mesh position={[0, 0.8, 0]} receiveShadow raycast={noRaycast}>
+      <boxGeometry args={[2.08, 0.05, 2.08]} />
+      <meshStandardMaterial color="#576f70" roughness={0.6} metalness={0.16} />
+    </mesh>
+    {[-0.62, 0, 0.62].map((x) => <mesh key={x} position={[x, 0.84, 0]} raycast={noRaycast}>
+      <boxGeometry args={[0.08, 0.035, 1.8]} />
+      <meshStandardMaterial color="#b5c6c6" roughness={0.55} />
+    </mesh>)}
+    {[-1.1, 1.1].map((z) => <mesh key={z} position={[0, 0.83, z]} raycast={noRaycast}>
+      <boxGeometry args={[2.24, 0.13, 0.1]} />
+      <meshStandardMaterial color="#378568" roughness={0.5} />
+    </mesh>)}
+  </group>
+}
+
+export function MachineMesh({ componentType, position, ghost = false, machineId, selected = false, highlighted = false, locked = false, mounted = false, transitionIn = false, transitionOut = false, groupSize = 1, onDelete, length, breadth, rotation = 0, angle, ports }: {
   componentType: FactoryComponentType
   position: FloorPosition
   ghost?: boolean
@@ -102,6 +125,7 @@ export function MachineMesh({ componentType, position, ghost = false, machineId,
   length?: number
   breadth?: number
   rotation?: number
+  angle?: number
   ports?: { in: boolean; out: boolean }
 }) {
   const component = getFactoryComponent(componentType)
@@ -116,7 +140,7 @@ export function MachineMesh({ componentType, position, ghost = false, machineId,
   const cylinder = (at: Point, radius: number, partHeight: number, color: string, partRotation?: Point) =>
     <CylinderPart at={at} radius={radius} height={partHeight} color={color} ghost={ghost} machineId={machineId} rotation={partRotation} />
 
-  return <group position={position} rotation={[0, rotation * Math.PI / 2, 0]} name={`${ghost ? 'Preview' : 'Component'}: ${component.name}`}>
+  return <group position={position} rotation={[0, angle ?? rotation * Math.PI / 2, 0]} name={`${ghost ? 'Preview' : 'Component'}: ${component.name}`}>
     {componentType === 'conveyor-belt' ? <group position={[beltShift, 0, 0]}>
       {part([0, 0.36, 0], [beltWidth, 0.55, 2.2], '#334b50')}
       {part([0, 0.67, 0], [Math.max(0.08, beltWidth - 0.12), 0.09, 1.78], '#576f70')}

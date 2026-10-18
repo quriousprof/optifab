@@ -1,10 +1,50 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { Raycaster, Vector3 } from 'three'
-import { assemblyLocked, connectedPorts, cornerTiles, linkedAssembly, mergeConveyors, conveyorRun, layConveyor, layConveyorRun, movementAssembly, resizeConveyor, resizeConveyorLayout, resizeStorage, resolvePlacementTarget, rotateMachine, snapToConnections, surfaceTransitions, translateAssembly, workstationForFootprint } from '../src/connections.ts'
+import { assemblyLocked, connectedPorts, conveyorJunctions, cornerTiles, linkedAssembly, mergeConveyors, conveyorRun, layConveyor, layConveyorRun, layDirectionalConveyorRun, movementAssembly, resizeConveyor, resizeConveyorLayout, resizeStorage, resolvePlacementTarget, rotateMachine, snapToConnections, surfaceTransitions, translateAssembly, workstationForFootprint } from '../src/connections.ts'
 
 const belt = { id: 'b', componentType: 'conveyor-belt', position: [0, 0, 0], length: 6 } // ports at x=-3 (in) / x=3 (out)
 const cnc = { id: 'c', componentType: 'cutting-machine', position: [6, 0, 0] } // width 6: in-port at x=3
+
+test('free-angle belts fan from the middle of one trunk and stay linked', () => {
+  const trunk = { ...belt, length: 12 }
+  const a = { id: 'a', componentType: 'conveyor-belt', ...layDirectionalConveyorRun([0, 0], [6, 6], [trunk], 0)[0] }
+  const b = { id: 'fan-b', componentType: 'conveyor-belt', ...layDirectionalConveyorRun([2, 0], [7, -5], [trunk, a], 0)[0] }
+  const machines = [trunk, a, b]
+  assert.ok(Math.abs(a.angle + Math.PI / 4) < 1e-6)
+  assert.deepEqual(connectedPorts(trunk, machines), { in: false, out: true })
+  assert.deepEqual(connectedPorts(a, machines), { in: true, out: false })
+  assert.deepEqual([...conveyorRun('b', machines)].sort(), ['a', 'b', 'fan-b'])
+  assert.deepEqual(conveyorJunctions(machines).map((joint) => joint.center.map((value) => Math.round(value * 1000) / 1000 || 0)), [[0, 0], [2, 0]])
+  assert.equal(linkedAssembly('fan-b', machines).size, 3)
+})
+
+test('a diagonal feed can converge onto a belt spine', () => {
+  const trunk = { ...belt, length: 12 }
+  const feed = { id: 'feed', componentType: 'conveyor-belt', ...layDirectionalConveyorRun([0, 8], [1, 0.4], [trunk], 0)[0] }
+  assert.deepEqual(connectedPorts(feed, [trunk, feed]), { in: false, out: true })
+  assert.deepEqual(connectedPorts(trunk, [trunk, feed]), { in: true, out: false })
+  assert.equal(conveyorJunctions([trunk, feed]).length, 1)
+})
+
+test('resizing a trunk keeps its mid-belt branches attached without shifting them', () => {
+  const trunk = { ...belt, length: 12 }
+  const branch = { id: 'branch', componentType: 'conveyor-belt', ...layDirectionalConveyorRun([0, 0], [6, 6], [trunk], 0)[0] }
+  const grown = resizeConveyorLayout('b', [trunk, branch], 14)
+  assert.deepEqual(grown.find((m) => m.id === 'branch').position, branch.position)
+  assert.equal(connectedPorts(branch, grown).in, true)
+  assert.equal(resizeConveyorLayout('b', [trunk, branch], 4), null)
+})
+
+test('diagonal drag can cross a workstation edge with connected raised and floor pieces', () => {
+  const host = { id: 'host', componentType: 'workstation', position: [0, 0, 0] }
+  const pieces = layDirectionalConveyorRun([0, 0], [16, 8], [host], 0, 'host')
+  assert.equal(pieces.length, 2)
+  assert.equal(pieces[0].workstationId, 'host')
+  assert.equal(pieces[1].workstationId, undefined)
+  const machines = [host, ...pieces.map((piece, index) => ({ id: `p${index}`, componentType: 'conveyor-belt', ...piece }))]
+  assert.equal(surfaceTransitions(machines).length, 1)
+})
 
 test('a candidate snaps its in-port onto a nearby out-port', () => {
   assert.deepEqual(snapToConnections('cutting-machine', undefined, 0, [6, 0, 1], [belt]), [6, 0, 0])

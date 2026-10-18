@@ -21,6 +21,7 @@ export type PlacedMachine = {
   length?: number // conveyors, deposits and workstations: extent along the flow direction
   breadth?: number // deposits and workstations: extent across the flow direction
   rotation?: number // quarter turns about Y; 0 flows toward +X
+  angle?: number // free-angle conveyor heading in radians; overrides quarter turns
   groupId?: string // explicit user grouping, in addition to physical port connections
   locked?: boolean
   workstationId?: string // machine mounted on a workstation platform
@@ -56,6 +57,15 @@ export function footprint(type: FactoryComponentType, length?: number, rotation 
   const width = machineWidth(type, length)
   const depth = machineDepth(type, breadth)
   return rotation % 2 ? [depth, width] : [width, depth]
+}
+
+export function machineFootprint(machine: Pick<PlacedMachine, 'componentType' | 'length' | 'breadth' | 'rotation' | 'angle'>): [number, number] {
+  if (machine.componentType !== 'conveyor-belt' || machine.angle === undefined) return footprint(machine.componentType, machine.length, machine.rotation ?? 0, machine.breadth)
+  const width = machineWidth(machine.componentType, machine.length)
+  const depth = machineDepth(machine.componentType)
+  const c = Math.abs(Math.cos(machine.angle))
+  const s = Math.abs(Math.sin(machine.angle))
+  return [width * c + depth * s, width * s + depth * c]
 }
 
 export function fitsFloor(x: number, z: number, width: number, depth: number): boolean {

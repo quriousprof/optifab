@@ -236,7 +236,7 @@ export function App() {
           <span className="grid-caption">Grid spacing: 1 unit</span>
         </div>
         <p className="control-hints" id="viewport-help">
-          {editorMode.mode === 'placement' && <span>Click to place; drag to lay a conveyor; R rotates</span>}
+          {editorMode.mode === 'placement' && <span>Click to place; drag a conveyor in any direction; start or finish on a belt to branch or merge; R rotates</span>}
           {editorMode.mode === 'navigate' && activeMachines.length > 0 && <span>Click to inspect; double-click to focus; drag to move; R rotates; Delete removes; Ctrl/Cmd+Z undoes</span>}
           <span>Drag to move; Shift-drag to rotate and tilt</span>
           <span>Right-drag / arrows to pan</span>
