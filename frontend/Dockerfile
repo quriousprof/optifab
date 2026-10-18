@@ -13,7 +13,8 @@ RUN npm run build
 
 # ── Stage 3: serve with caddy ─────────────────────────────────────────
 FROM caddy:2-alpine AS production
+ARG CADDYFILE=Caddyfile
 COPY --from=build /app/dist /srv
-COPY Caddyfile /etc/caddy/Caddyfile
-EXPOSE 80 443
+COPY ${CADDYFILE} /etc/caddy/Caddyfile
+EXPOSE 8080
 CMD ["caddy", "run", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]
