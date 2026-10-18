@@ -18,7 +18,7 @@ export function ScheduleChart({ factory, selectedLabel, onSelectMachine }: {
 }) {
   const [open, setOpen] = useState(false)
   const toggleRef = useRef<HTMLButtonElement>(null)
-  return <div className="pointer-events-none absolute bottom-[88px] left-1/2 z-20 flex w-[min(900px,calc(100%-36px))] -translate-x-1/2 flex-col items-center gap-2">
+  return <div className="pointer-events-none absolute bottom-[88px] left-7 right-[348px] z-20 flex flex-col items-center gap-2">
     {open && <section id="production-schedule-panel" aria-label="Production schedule" className="pointer-events-auto max-h-[calc(100svh-170px)] w-full overflow-auto rounded-xl border border-[#b3c0ca] bg-[#f6f9fb]/95 p-3 text-xs text-[#263844] shadow-[0_6px_24px_#2638440a]">
       <ScheduleContent factory={factory} selectedLabel={selectedLabel} onSelectMachine={onSelectMachine} onClose={() => { setOpen(false); toggleRef.current?.focus() }} />
     </section>}
