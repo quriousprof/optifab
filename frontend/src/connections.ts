@@ -126,15 +126,27 @@ export function connectedPorts(m: PlacedMachine, machines: PlacedMachine[]) {
 
 /** Every component linked through touching ports or an explicit user group. Mounting alone does not group a machine with its workstation. */
 export function linkedAssembly(id: string, machines: PlacedMachine[]): Set<string> {
-  const members = new Set(machines.some((machine) => machine.id === id) ? [id] : [])
-  for (const currentId of members) {
-    const current = machines.find((machine) => machine.id === currentId)!
-    for (const other of machines) {
-      if (members.has(other.id)) continue
-      if ((current.groupId && current.groupId === other.groupId) || feeds(current, other, machines) || feeds(other, current, machines)) members.add(other.id)
-    }
+  return new Set(linkedGroups(machines).get(id) ?? [])
+}
+
+// Layout arrays are immutable, so the connected groups are computed once per array instead of once per call.
+const groupCache = new WeakMap<PlacedMachine[], { size: number; groups: Map<string, Set<string>> }>()
+function linkedGroups(machines: PlacedMachine[]): Map<string, Set<string>> {
+  const cached = groupCache.get(machines)
+  if (cached?.size === machines.length) return cached.groups
+  const parent = new Map(machines.map((machine) => [machine.id, machine.id]))
+  const root = (id: string): string => { while (parent.get(id) !== id) id = parent.get(id)!; return id }
+  for (const [i, a] of machines.entries()) for (const b of machines.slice(i + 1)) {
+    if ((a.groupId && a.groupId === b.groupId) || feeds(a, b, machines) || feeds(b, a, machines)) parent.set(root(a.id), root(b.id))
   }
-  return members
+  const byRoot = new Map<string, Set<string>>()
+  for (const machine of machines) {
+    const key = root(machine.id)
+    byRoot.set(key, (byRoot.get(key) ?? new Set()).add(machine.id))
+  }
+  const groups = new Map(machines.map((machine) => [machine.id, byRoot.get(root(machine.id))!]))
+  groupCache.set(machines, { size: machines.length, groups })
+  return groups
 }
 
 /** A belt end sitting on another belt's end, or on/inside another component's footprint, is attached to it for movement. */

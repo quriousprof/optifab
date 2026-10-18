@@ -172,7 +172,8 @@ export function FactoryViewport({ floor, fitVersion, placementType, placementRot
   machineStates?: Record<string, MachineState> // backend FactoryState.machineStates, keyed by label
   renderDetails?: (machine: PlacedMachine) => ReactNode
 }) {
-  const transitions = surfaceTransitions(activeMachines)
+  const transitions = useMemo(() => surfaceTransitions(activeMachines), [activeMachines])
+  const portsById = useMemo(() => new Map(activeMachines.map((machine) => [machine.id, connectedPorts(machine, activeMachines)])), [activeMachines])
   const beltNeighbors = useMemo(() => new Map(activeMachines.map((machine) => {
     const linked = linkedAssembly(machine.id, activeMachines)
     return [machine.id, activeMachines.filter((peer) => peer.id !== machine.id && peer.componentType === 'conveyor-belt' && peer.workstationId === machine.workstationId && linked.has(peer.id))]
@@ -210,7 +211,7 @@ export function FactoryViewport({ floor, fitVersion, placementType, placementRot
       />
       <FactoryFloor floor={floor} />
       {activeMachines.map((machine) => (
-        <MachineMesh key={machine.id} machineId={machine.id} selected={selectedMachineId === machine.id} highlighted={highlightedIds.has(machine.id)} locked={lockedIds.has(machine.id)} mounted={!!machine.workstationId} transitionIn={transitions.some((joint) => joint.ids[1] === machine.id)} transitionOut={transitions.some((joint) => joint.ids[0] === machine.id)} groupSize={highlightedIds.has(machine.id) ? highlightedIds.size : 1} onDelete={onDelete} componentType={machine.componentType} position={[machine.position[0], machine.workstationId ? WORKSTATION_HEIGHT : 0, machine.position[2]]} length={machine.length} breadth={machine.breadth} rotation={machine.rotation} angle={machine.angle} entryAngle={machine.entryAngle} exitAngle={machine.exitAngle} neighbors={beltNeighbors.get(machine.id)} ports={connectedPorts(machine, activeMachines)} label={machine.label} displayLabel={machine.displayLabel} status={machine.label ? machineStates?.[machine.label]?.status : undefined} details={selectedMachineId === machine.id ? renderDetails?.(machine) : undefined} />
+        <MachineMesh key={machine.id} machineId={machine.id} selected={selectedMachineId === machine.id} highlighted={highlightedIds.has(machine.id)} locked={lockedIds.has(machine.id)} mounted={!!machine.workstationId} transitionIn={transitions.some((joint) => joint.ids[1] === machine.id)} transitionOut={transitions.some((joint) => joint.ids[0] === machine.id)} groupSize={highlightedIds.has(machine.id) ? highlightedIds.size : 1} onDelete={onDelete} componentType={machine.componentType} position={[machine.position[0], machine.workstationId ? WORKSTATION_HEIGHT : 0, machine.position[2]]} length={machine.length} breadth={machine.breadth} rotation={machine.rotation} angle={machine.angle} entryAngle={machine.entryAngle} exitAngle={machine.exitAngle} neighbors={beltNeighbors.get(machine.id)} ports={portsById.get(machine.id)} label={machine.label} displayLabel={machine.displayLabel} status={machine.label ? machineStates?.[machine.label]?.status : undefined} details={selectedMachineId === machine.id ? renderDetails?.(machine) : undefined} />
       ))}
       {cornerTiles(activeMachines).map((tile) => (
         <CornerMesh key={tile.ids.join()} center={tile.center} from={tile.from} to={tile.to} highlighted={highlightedIds.has(tile.ids[0]) && highlightedIds.has(tile.ids[1])} elevation={activeMachines.find((machine) => machine.id === tile.ids[0])?.workstationId ? WORKSTATION_HEIGHT : 0} />

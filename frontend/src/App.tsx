@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { FactoryViewport } from './FactoryViewport'
 import type { PlaceOptions } from './SceneInteraction'
 import { LayoutMenu } from './LayoutMenu'
@@ -124,6 +124,7 @@ export function App() {
   useEffect(() => {
     setSelectedMachineIds((ids) => ids.every((id) => activeMachines.some((machine) => machine.id === id)) ? ids : ids.filter((id) => activeMachines.some((machine) => machine.id === id)))
   }, [activeMachines])
+  const lockedIds = useMemo(() => new Set(activeMachines.filter((machine) => assemblyLocked(linkedAssembly(machine.id, activeMachines), activeMachines)).map((machine) => machine.id)), [activeMachines])
   const selectedAssemblyIds = explicitSelection(selectedMachineIds, activeMachines)
   const selectedLocked = assemblyLocked(selectedAssemblyIds, activeMachines)
   const selectedGroupSize = selectedAssemblyIds.size
@@ -216,7 +217,7 @@ export function App() {
         activeMachines={activeMachines}
         selectedMachineId={selectedMachineId}
         highlightedIds={selectedAssemblyIds}
-        lockedIds={new Set(activeMachines.filter((machine) => assemblyLocked(linkedAssembly(machine.id, activeMachines), activeMachines)).map((machine) => machine.id))}
+        lockedIds={lockedIds}
         focusRequest={focusRequest}
         onSelect={selectMachine}
         onSelectRectangle={selectRectangle}
