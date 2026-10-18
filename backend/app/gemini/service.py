@@ -37,10 +37,12 @@ Provide a brief analysis covering:
 3. Which machines have capacity to absorb rescheduled work
 4. Recommended priority for rescheduling
 
-Keep it concise and actionable — this is for a factory operator dashboard."""
+Keep it concise and actionable — this is for a factory operator dashboard.
+
+Format: plain text only. No markdown, no headings, no bold, no LaTeX. Under 120 words; short sentences or lines starting with "- "."""
 
     response = await client.aio.models.generate_content(
-        model="gemini-2.5-flash",
+        model=settings.gemini_model,
         contents=prompt,
     )
     return response.text
@@ -87,10 +89,12 @@ Provide:
 2. Whether the recovery schedule is efficient
 3. Any tradeoffs the operator should be aware of
 
-Keep it brief and clear for a dashboard display."""
+Keep it brief and clear for a dashboard display.
+
+Format: plain text only. No markdown, no headings, no bold, no LaTeX. Under 120 words; short sentences or lines starting with "- "."""
 
     response = await client.aio.models.generate_content(
-        model="gemini-2.5-flash",
+        model=settings.gemini_model,
         contents=prompt,
     )
     return response.text

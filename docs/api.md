@@ -149,11 +149,17 @@ Returns a schedule by its ID. The frontend uses this to render the Gantt chart.
 
 ### `POST /api/failure/trigger`
 
-Triggers the F1 machine failure at simulated time 6. Transitions the factory from `"baseline"` to `"failed"` phase.
+Triggers a forming-machine failure at simulated time 6. Transitions the factory from `"baseline"` to `"failed"` phase.
 
-**Request body:** none
+**Request body (optional):**
 
-**Response:** FactoryState (same shape as `GET /api/state`) with:
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| machineId | `"F1"` \| `"F2"` \| `"F3"` | `"F1"` | Forming machine to fail. Only forming machines can fail (two forming survivors keep the QAOA problem at 10 qubits). |
+
+**400** if `machineId` is not a forming machine, or a failure is already active (reset first).
+
+**Response:** FactoryState (same shape as `GET /api/state`), computed from the baseline schedule. For the default F1 failure:
 - `phase`: `"failed"`
 - `simulationTime`: `6`
 - `failedMachineIds`: `["F1"]`
@@ -162,6 +168,8 @@ Triggers the F1 machine failure at simulated time 6. Transitions the factory fro
 - `machineStates.F2.status`: `"processing"` (J3-forming still running)
 - `machineStates.F3.status`: `"processing"` (J2-forming still running)
 - `machineStates.I1.status`: `"blocked"` (downstream of failed job)
+
+Failing `F2` blocks `["J3", "J4"]`; failing `F3` blocks `["J2", "J6"]`.
 
 After triggering, the baseline schedule remains visible for comparison. The minute-6 failure line and affected operations should be visually marked on the Gantt chart. Do not show a recovery schedule until the optimizer returns one.
 
@@ -181,7 +189,7 @@ Resets the factory back to the initial baseline state at time 0. Clears the fail
 
 ### `POST /api/optimize`
 
-Starts the optimization process. Runs both the QAOA quantum solver and a classical exhaustive solver in the background. Returns immediately with a job ID for polling.
+Starts the optimization process for the active failure (**400** if the factory is not in the `"failed"` phase). Runs both the QAOA quantum solver and a classical exhaustive solver in the background. Returns immediately with a job ID for polling.
 
 **Request body (optional):**
 
@@ -305,8 +313,9 @@ All error responses follow this shape:
 | detail | string | Human-readable error message |
 
 HTTP status codes used:
-- **400** — bad request (e.g. triggering AI analysis before failure)
+- **400** — bad request (e.g. triggering AI analysis or optimization before a failure, failing a non-forming machine)
 - **404** — resource not found (schedule ID, job ID)
+- **502** — Gemini request failed (network, bad key, quota); `detail` carries the reason
 - **503** — service unavailable (Gemini API key not configured)
 
 ---

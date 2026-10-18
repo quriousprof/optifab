@@ -86,7 +86,9 @@ No request body. Transitions factory from baseline to failed.
 
 The baseline Gantt stays visible for comparison. Operations that can no longer proceed (J1-forming on F1 at [2,8) and J5-forming on F1 at [8,15)) should be visually marked as cancelled/disrupted. Do not show any recovery bars yet.
 
-**Where to place the trigger:** A "Trigger Failure" button in F1's inspector panel, visible only during baseline phase.
+**Request body (optional):** `{ "machineId": "F1" | "F2" | "F3" }`, default F1. Other machines are rejected with 400.
+
+**Where to place the trigger:** A "Simulate failure" button in the inspector of any forming machine (F1–F3), visible only during baseline phase.
 
 ### `POST /api/ai/analyze-failure` (optional, requires Gemini key)
 
@@ -94,7 +96,7 @@ No request body. Must be called after failure trigger (returns 400 if phase is n
 
 **Response:** `{ "analysis": "..." }` — a natural-language explanation of what broke, which jobs are affected, cascading impact, and available capacity.
 
-**Where to display:** In the inspector side panel when F1 is selected, or a dedicated "AI Analysis" card in the failure mode UI.
+**Where to display:** An "AI failure analysis" card in the recovery panel (`TwinPanel.tsx`). It shows loading, the text, or the backend's reason when unavailable (503 no key, 502 Gemini error), with Retry/Regenerate. The demo works without a key.
 
 ### `POST /api/optimize`
 
@@ -160,7 +162,7 @@ The Gantt now shows the recovery schedule as the active plan. The baseline can r
 
 **Response:** `{ "explanation": "..." }` — natural-language comparison of the recovery vs baseline, tradeoffs, efficiency assessment.
 
-**Where to display:** Below or alongside the schedule comparison panel after optimization completes.
+**Where to display:** An "AI schedule explanation" card in the recovery panel, requested automatically when a recovery is applied, with the same loading/error/Regenerate handling.
 
 ---
 

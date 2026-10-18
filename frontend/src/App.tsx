@@ -3,6 +3,7 @@ import { FactoryViewport } from './FactoryViewport'
 import type { PlaceOptions } from './SceneInteraction'
 import { ComponentSidebar } from './ComponentSidebar'
 import { MachineInspector, RecoveryPanel } from './TwinPanel'
+import { ScheduleChart } from './ScheduleChart'
 import { useFactory } from './useFactory'
 import { presetLayout } from './presetLayout'
 import { alignMerges, assemblyLocked, linkedAssembly, mergeConveyors, movementAssembly, resizeConveyorLayout, resizeStorage, rotateMachine, translateAssembly, workstationForFootprint, type Laid } from './connections'
@@ -203,6 +204,16 @@ export function App() {
       />
 
       <RecoveryPanel factory={factory} />
+      <ScheduleChart
+        factory={factory}
+        selectedLabel={activeMachines.find((machine) => machine.id === selectedMachineId)?.label ?? null}
+        onSelectMachine={(label) => {
+          const machine = activeMachines.find((item) => item.label === label)
+          if (!machine) return // that backend machine isn't on the floor yet
+          selectMachine(machine.id)
+          focusMachine(machine.id)
+        }}
+      />
 
       <ComponentSidebar
         editorMode={editorMode}

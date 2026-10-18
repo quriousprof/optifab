@@ -71,6 +71,11 @@ export async function optimize(method: 'qaoa' | 'classical' | 'both' = 'both'): 
   }
 }
 
+/** Baseline operations the failure cancels: on a failed machine and not finished by the failure minute. */
+export function disruptedOperations(baseline: Schedule, failedMachineIds: string[], time: number): Set<string> {
+  return new Set(baseline.operations.filter((op) => failedMachineIds.includes(op.machineId) && op.end > time).map((op) => op.operationId))
+}
+
 /** Operation IDs whose machine or timing differs from the baseline — for highlighting on the Gantt. */
 export function changedOperations(baseline: Schedule, schedule: Schedule): Set<string> {
   const original = new Map(baseline.operations.map((op) => [op.operationId, op]))

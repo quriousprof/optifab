@@ -20,7 +20,10 @@ async def analyze_failure_endpoint():
     if state.phase != "failed":
         raise HTTPException(400, "No active failure to analyze")
 
-    analysis = await analyze_failure(state, factory_service.scenario)
+    try:
+        analysis = await analyze_failure(state, factory_service.scenario)
+    except Exception as e:  # network errors, bad key, quota: surface a readable reason instead of a bare 500
+        raise HTTPException(502, f"Gemini request failed: {e}") from e
     return {"analysis": analysis}
 
 
@@ -40,7 +43,10 @@ async def explain_schedule_endpoint(req: ExplainRequest):
     classical = factory_service.get_schedule("classical-exhaustive")
     classical_makespan = max(op.end for op in classical.operations) if classical else None
 
-    explanation = await explain_schedule(
-        baseline, recovery, recovery_makespan, classical_makespan,
-    )
+    try:
+        explanation = await explain_schedule(
+            baseline, recovery, recovery_makespan, classical_makespan,
+        )
+    except Exception as e:
+        raise HTTPException(502, f"Gemini request failed: {e}") from e
     return {"explanation": explanation}

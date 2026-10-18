@@ -1,6 +1,10 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import * as api from './api'
 import type { FactoryState, OptimizeResult, Scenario, Schedule } from './api'
+
+/** One Gemini response: loading until it settles, then text or the backend's reason (503 = no key, 502 = Gemini failed). */
+export type AiState = { status: 'idle' | 'loading' | 'done' | 'error'; text?: string; error?: string }
+const IDLE: AiState = { status: 'idle' }
 
 /**
  * Owns all backend state for the digital twin. The UI renders whatever FactoryState the API
@@ -11,14 +15,22 @@ export function useFactory() {
   const [state, setState] = useState<FactoryState | null>(null)
   const [schedules, setSchedules] = useState<Record<string, Schedule>>({})
   const [optimizeResult, setOptimizeResult] = useState<OptimizeResult | null>(null)
-  const [analysis, setAnalysis] = useState<string | null>(null)
-  const [explanation, setExplanation] = useState<string | null>(null)
+  const [analysis, setAnalysis] = useState<AiState>(IDLE)
+  const [explanation, setExplanation] = useState<AiState>(IDLE)
+  const generation = useRef(0) // bumped on reset so a late Gemini reply can't land on a fresh baseline
   const [busy, setBusy] = useState<'failing' | 'optimizing' | 'applying' | 'resetting' | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const addSchedule = (schedule: Schedule) => setSchedules((all) => ({ ...all, [schedule.scheduleId]: schedule }))
-  // Gemini endpoints 503 without a key; the demo works without them.
-  const optional = <T,>(promise: Promise<T>, use: (value: T) => void) => promise.then(use).catch(() => {})
+  // The demo works without Gemini: failures here only fill the AI card, never the main error banner.
+  const ask = (set: (state: AiState) => void, call: () => Promise<string>) => {
+    const mine = generation.current
+    set({ status: 'loading' })
+    call().then((text) => mine === generation.current && set({ status: 'done', text }))
+      .catch((caught) => mine === generation.current && set({ status: 'error', error: caught instanceof Error ? caught.message : String(caught) }))
+  }
+  const analyze = useCallback(() => ask(setAnalysis, () => api.analyzeFailure().then((result) => result.analysis)), [])
+  const explain = useCallback((scheduleId: string) => ask(setExplanation, () => api.explainSchedule(scheduleId).then((result) => result.explanation)), [])
 
   const run = useCallback(async (label: NonNullable<typeof busy>, work: () => Promise<void>) => {
     setBusy(label)
@@ -54,31 +66,31 @@ export function useFactory() {
     const triggered = await run('failing', async () => {
       setState(await api.triggerFailure(machineId))
       setOptimizeResult(null)
-      setExplanation(null)
-      setAnalysis(null)
-      optional(api.analyzeFailure(), ({ analysis }) => setAnalysis(analysis))
+      setExplanation(IDLE)
+      analyze()
     })
     if (triggered) await optimize()
-  }, [run, optimize])
+  }, [run, optimize, analyze])
 
   const apply = useCallback((scheduleId: string) => run('applying', async () => {
     setState(await api.applyRecovery(scheduleId))
-    optional(api.explainSchedule(scheduleId), ({ explanation }) => setExplanation(explanation))
-  }), [run])
+    explain(scheduleId)
+  }), [run, explain])
 
   const reset = useCallback(() => run('resetting', async () => {
     setState(await api.resetFailure())
     setSchedules((all) => ({ baseline: all.baseline }))
     setOptimizeResult(null)
-    setAnalysis(null)
-    setExplanation(null)
+    generation.current++
+    setAnalysis(IDLE)
+    setExplanation(IDLE)
   }), [run])
 
   return {
     scenario, state, schedules, optimizeResult, analysis, explanation, busy, error,
     baseline: schedules.baseline ?? null,
     activeSchedule: state ? schedules[state.activeScheduleId] ?? null : null,
-    fail, optimize, apply, reset,
+    fail, optimize, apply, reset, analyze, explain,
   }
 }
 

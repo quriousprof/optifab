@@ -68,7 +68,7 @@ The quantum solver optimizes **machine assignments** for 10 reschedulable operat
 | GET | `/api/state` | Current factory state |
 | GET | `/api/scenario` | Scenario definition |
 | GET | `/api/schedule/{id}` | Get schedule by ID |
-| POST | `/api/failure/trigger` | Trigger F1 failure |
+| POST | `/api/failure/trigger` | Trigger a forming-machine failure (`{"machineId"}`, default F1) |
 | POST | `/api/failure/reset` | Reset to baseline |
 | POST | `/api/optimize` | Start QAOA + classical (202 + job ID) |
 | GET | `/api/optimize/{job_id}` | Poll optimization status |

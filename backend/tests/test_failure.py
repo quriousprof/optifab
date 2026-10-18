@@ -44,3 +44,38 @@ def test_trigger_api_flow():
     client.post("/api/failure/reset")
     assert client.post("/api/failure/trigger").json()["failedMachineIds"] == ["F1"]
     client.post("/api/failure/reset")
+
+
+def test_ai_endpoints(monkeypatch):
+    from app.gemini import router as gemini_router
+
+    client = TestClient(app)
+    client.post("/api/failure/reset")
+
+    monkeypatch.setattr(settings, "gemini_api_key", "")
+    assert client.post("/api/ai/analyze-failure").status_code == 503
+
+    monkeypatch.setattr(settings, "gemini_api_key", "test")
+
+    async def fake_analyze(state, scenario):
+        return f"failed {state.failedMachineIds}"
+
+    async def fake_explain(baseline, recovery, recovery_makespan, classical_makespan=None):
+        return f"explained {recovery.scheduleId} in {recovery_makespan}"
+
+    monkeypatch.setattr(gemini_router, "analyze_failure", fake_analyze)
+    monkeypatch.setattr(gemini_router, "explain_schedule", fake_explain)
+
+    assert client.post("/api/ai/analyze-failure").status_code == 400  # no failure yet
+    client.post("/api/failure/trigger", json={"machineId": "F2"})
+    assert client.post("/api/ai/analyze-failure").json() == {"analysis": "failed ['F2']"}
+    assert client.post("/api/ai/explain-schedule", json={"scheduleId": "nope"}).status_code == 404
+    assert client.post("/api/ai/explain-schedule", json={"scheduleId": "baseline"}).json()["explanation"].startswith("explained baseline")
+
+    async def broken(*args, **kwargs):
+        raise RuntimeError("quota exceeded")
+
+    monkeypatch.setattr(gemini_router, "analyze_failure", broken)
+    response = client.post("/api/ai/analyze-failure")
+    assert response.status_code == 502 and "quota exceeded" in response.json()["detail"]
+    client.post("/api/failure/reset")

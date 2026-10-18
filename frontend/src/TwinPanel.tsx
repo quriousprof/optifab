@@ -1,6 +1,6 @@
 import { FAILABLE_MACHINES, type Stage } from './api'
 import type { PlacedMachine } from './factoryComponents'
-import type { Factory } from './useFactory'
+import type { AiState, Factory } from './useFactory'
 
 const STAGE_OF: Partial<Record<PlacedMachine['componentType'], Stage>> = { 'cutting-machine': 'cutting', 'forming-machine': 'forming', 'inspection-machine': 'inspection' }
 const button = 'pointer-events-auto cursor-pointer rounded-md border border-[#b3c0ca] bg-white px-2.5 py-1 text-xs font-semibold hover:bg-[#e7eff6] disabled:cursor-default disabled:opacity-40'
@@ -60,8 +60,22 @@ export function RecoveryPanel({ factory }: { factory: Factory }) {
         <button type="button" className={button} disabled={!!busy} onClick={() => factory.apply(schedule.scheduleId)}>Apply</button>
       </div>)}
     {result?.qaoa_metadata && <p className="mt-1 text-[#4c606e]">{result.qaoa_metadata.num_qubits} qubits · p={result.qaoa_metadata.circuit_depth} · {result.qaoa_metadata.optimizer_iterations} COBYLA evals</p>}
-    {(explanation ?? analysis) && <p className="mt-2 max-h-40 overflow-y-auto whitespace-pre-wrap text-[#4c606e]">{explanation ?? analysis}</p>}
+    {state.phase !== 'baseline' && <AiCard title="AI failure analysis" ai={analysis} onRetry={factory.analyze} disabled={!!busy} />}
+    {state.phase === 'recovered' && <AiCard title="AI schedule explanation" ai={explanation} onRetry={() => factory.explain(state.activeScheduleId)} disabled={!!busy} />}
   </aside>
+}
+
+/** One Gemini answer. The backend's own message explains a missing key (503) or a failed request (502). */
+function AiCard({ title, ai, onRetry, disabled }: { title: string; ai: AiState; onRetry: () => void; disabled: boolean }) {
+  return <section className="mt-3 border-t border-[#d4dfe7] pt-2" aria-label={title}>
+    <div className="flex items-center justify-between gap-2">
+      <h3 className="font-semibold">{title}</h3>
+      {(ai.status === 'done' || ai.status === 'error') && <button type="button" className={button} disabled={disabled} onClick={onRetry}>{ai.status === 'error' ? 'Retry' : 'Regenerate'}</button>}
+    </div>
+    {ai.status === 'loading' && <p className="mt-1 text-[#4c606e]">Asking Gemini…</p>}
+    {ai.status === 'error' && <p className="mt-1 text-[#9a6a00]">Unavailable: {ai.error}</p>}
+    {ai.status === 'done' && <p className="mt-1 max-h-40 overflow-y-auto whitespace-pre-wrap text-[#4c606e]">{ai.text}</p>}
+  </section>
 }
 
 const panel = 'pointer-events-auto absolute right-7 bottom-24 z-10 w-[300px] rounded-xl border border-[#b3c0ca] bg-[#f6f9fb]/95 p-4 text-xs text-[#263844] shadow-[0_6px_24px_#2638440a] max-sm:right-[18px] max-sm:w-[238px]'

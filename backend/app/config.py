@@ -5,6 +5,7 @@ from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
     gemini_api_key: str = ""
+    gemini_model: str = "gemini-flash-latest"  # alias tracks the current Flash model; pin a name to freeze it
     qaoa_depth: int = 2
     qaoa_shots: int = 1024
     qaoa_optimizer_maxiter: int = 100
