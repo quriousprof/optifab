@@ -9,7 +9,7 @@ BACKEND_IMAGE="${REPO}-backend"
 FRONTEND_IMAGE="${REPO}-frontend"
 
 echo "==> Building and pushing backend"
-docker build -t "${BACKEND_IMAGE}" ./backend
+docker build --platform linux/amd64 -t "${BACKEND_IMAGE}" ./backend
 docker push "${BACKEND_IMAGE}"
 
 echo "==> Deploying backend to Cloud Run"
@@ -30,6 +30,7 @@ echo "==> Backend deployed at ${BACKEND_URL}"
 
 echo "==> Building and pushing frontend"
 docker build \
+  --platform linux/amd64 \
   --build-arg CADDYFILE=Caddyfile.cloudrun \
   -t "${FRONTEND_IMAGE}" \
   ./frontend
