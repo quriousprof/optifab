@@ -21,3 +21,6 @@ __pycache__/
 # Local tools
 .idea/
 .vscode/
+
+# Local saved layouts
+backend/data/

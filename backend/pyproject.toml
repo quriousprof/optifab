@@ -12,6 +12,7 @@ dependencies = [
     "scipy>=1.14",
     "numpy>=2.0",
     "google-genai>=1.14",
+    "google-cloud-firestore>=2.19",
 ]
 
 [project.optional-dependencies]

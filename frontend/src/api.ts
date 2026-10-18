@@ -1,5 +1,7 @@
 // Typed client for the FastAPI backend (see docs/api.md). Types mirror backend/app/core/schemas.py.
 
+import type { PlacedMachine } from './factoryComponents.ts'
+
 export type Stage = 'cutting' | 'forming' | 'inspection'
 export type MachineStatus = 'idle' | 'processing' | 'failed' | 'blocked'
 export type Phase = 'baseline' | 'failed' | 'recovered'
@@ -43,9 +45,9 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(path: string, body?: unknown): Promise<T> {
-  const response = await fetch(`/api${path}`, body === undefined ? undefined : {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+async function request<T>(path: string, body?: unknown, method = body === undefined ? 'GET' : 'POST'): Promise<T> {
+  const response = await fetch(`/api${path}`, method === 'GET' ? undefined : {
+    method, headers: { 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body),
   })
   const data = await response.json().catch(() => ({}))
   if (!response.ok) throw new ApiError(response.status, data.detail ?? response.statusText)
@@ -60,6 +62,12 @@ export const resetFailure = () => request<FactoryState>('/failure/reset', {})
 export const applyRecovery = (scheduleId: string) => request<FactoryState>('/recovery/apply', { scheduleId })
 export const analyzeFailure = () => request<{ analysis: string }>('/ai/analyze-failure', {})
 export const explainSchedule = (scheduleId: string) => request<{ explanation: string }>('/ai/explain-schedule', { scheduleId })
+
+export type LayoutSummary = { name: string; updatedAt: string }
+export const listLayouts = () => request<LayoutSummary[]>('/layouts')
+export const getLayout = (name: string) => request<{ machines: PlacedMachine[] }>(`/layouts/${encodeURIComponent(name)}`)
+export const saveLayout = (name: string, machines: PlacedMachine[]) => request<LayoutSummary>(`/layouts/${encodeURIComponent(name)}`, { machines }, 'PUT')
+export const deleteLayout = (name: string) => request<{ deleted: string }>(`/layouts/${encodeURIComponent(name)}`, undefined, 'DELETE')
 
 /** Starts an optimization job and polls every second until it finishes (QAOA takes ~10–15 s). */
 export async function optimize(method: 'qaoa' | 'classical' | 'both' = 'both'): Promise<OptimizeResult> {

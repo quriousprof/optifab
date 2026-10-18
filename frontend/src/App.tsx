@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { FactoryViewport } from './FactoryViewport'
 import type { PlaceOptions } from './SceneInteraction'
+import { LayoutMenu } from './LayoutMenu'
 import { ComponentSidebar } from './ComponentSidebar'
 import { MachineInspector, RecoveryPanel } from './TwinPanel'
 import { ScheduleChart } from './ScheduleChart'
@@ -32,6 +33,14 @@ export function App() {
   const loadPreset = useCallback(() => {
     checkpoint()
     setActiveMachines(presetLayout())
+    setSelectedMachineIds([])
+    setEditorMode({ mode: 'navigate' })
+    setFocusRequest(null)
+    setFitVersion((version) => version + 1)
+  }, [checkpoint])
+  const loadLayout = useCallback((machines: PlacedMachine[]) => {
+    checkpoint()
+    setActiveMachines(machines)
     setSelectedMachineIds([])
     setEditorMode({ mode: 'navigate' })
     setFocusRequest(null)
@@ -259,6 +268,7 @@ export function App() {
           <span className="header-divider" aria-hidden="true" />
           <h1>Factory floor</h1>
         </div>
+        <LayoutMenu machines={activeMachines} onLoad={loadLayout} />
       </header>
 
       <footer className="viewport-footer">
