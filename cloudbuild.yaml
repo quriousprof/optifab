@@ -1,0 +1,24 @@
+steps:
+  # Build backend (context = repo root)
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -f
+      - backend/Dockerfile
+      - -t
+      - gcr.io/$PROJECT_ID/optifab-backend
+      - .
+
+  # Build frontend (context = frontend/)
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - --build-arg
+      - CADDYFILE=Caddyfile.cloudrun
+      - -t
+      - gcr.io/$PROJECT_ID/optifab-frontend
+      - frontend/
+
+images:
+  - gcr.io/$PROJECT_ID/optifab-backend
+  - gcr.io/$PROJECT_ID/optifab-frontend

@@ -1,6 +1,6 @@
-FROM --platform=linux/amd64 ghcr.io/astral-sh/uv:0.7 AS uv
+FROM ghcr.io/astral-sh/uv:0.7 AS uv
 
-FROM --platform=linux/amd64 python:3.12-slim
+FROM python:3.12-slim
 
 COPY --from=uv /uv /uvx /bin/
 
