@@ -2,21 +2,23 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { FactoryViewport } from './FactoryViewport'
 import type { PlaceOptions } from './SceneInteraction'
 import { ComponentSidebar } from './ComponentSidebar'
-import { mergeConveyors, resizeConveyor, rotateMachine } from './connections'
-import { FLOOR_SIZE, type EditorMode, type FactoryComponentType, type FloorPosition, type PlacedMachine } from './factoryComponents'
+import { assemblyLocked, linkedAssembly, mergeConveyors, movementAssembly, resizeConveyorLayout, resizeStorage, rotateMachine, translateAssembly, workstationForFootprint } from './connections'
+import { FLOOR_SIZE, isResizableAreaType, type EditorMode, type FactoryComponentType, type FloorPosition, type PlacedMachine } from './factoryComponents'
 
 export function App() {
   const [fitVersion, setFitVersion] = useState(0)
   const [editorMode, setEditorMode] = useState<EditorMode>({ mode: 'navigate' })
   const [placementRotation, setPlacementRotation] = useState(0)
   const [activeMachines, setActiveMachines] = useState<PlacedMachine[]>([])
-  const [selectedMachineId, setSelectedMachineId] = useState<string | null>(null)
+  const [selectedMachineIds, setSelectedMachineIds] = useState<string[]>([])
+  const selectedMachineId = selectedMachineIds.at(-1) ?? null
   const [focusRequest, setFocusRequest] = useState<{ machineId: string; version: number } | null>(null)
   // Undo: every edit pushes the previous layout (immutable arrays, so snapshots are cheap).
   const machinesRef = useRef(activeMachines)
   machinesRef.current = activeMachines
   const history = useRef<PlacedMachine[][]>([])
   const dragging = useRef(false) // a whole drag is one undo step
+  const dragIds = useRef<Set<string> | null>(null)
   const [undoDepth, setUndoDepth] = useState(0)
   const checkpoint = useCallback(() => {
     history.current = [...history.current.slice(-99), machinesRef.current]
@@ -26,11 +28,12 @@ export function App() {
     const previous = history.current.pop()
     if (!previous) return
     dragging.current = false
+    dragIds.current = null
     setUndoDepth(history.current.length)
     setActiveMachines(previous)
   }, [])
-  const selectMachine = useCallback((id: string | null) => {
-    setSelectedMachineId(id)
+  const selectMachine = useCallback((id: string | null, additive = false) => {
+    setSelectedMachineIds((current) => !id ? [] : additive ? current.includes(id) ? current.filter((item) => item !== id) : [...current, id] : [id])
     setFocusRequest(null)
     if (id) setEditorMode({ mode: 'navigate' })
   }, [])
@@ -42,42 +45,95 @@ export function App() {
     checkpoint()
     setActiveMachines((machines) => mergeConveyors([...machines, machine]))
   }, [checkpoint])
-  const moveMachine = useCallback((id: string, position: FloorPosition) => {
-    if (!dragging.current) { dragging.current = true; checkpoint() }
-    setActiveMachines((machines) => machines.map((machine) => (machine.id === id ? { ...machine, position } : machine)))
+  const moveMachine = useCallback((id: string, position: FloorPosition, detach = false) => {
+    const dragged = machinesRef.current.find((machine) => machine.id === id)
+    if (!dragged) return
+    const fullAssembly = movementAssembly(id, machinesRef.current)
+    if (assemblyLocked(fullAssembly, machinesRef.current)) return
+    const detachComponent = detach && dragged.componentType !== 'workstation'
+    const ids = dragIds.current ?? (detachComponent ? new Set([id]) : fullAssembly)
+    if (!translateAssembly(machinesRef.current, ids, id, position, detachComponent)) return
+    if (!dragging.current) {
+      dragIds.current = ids
+      dragging.current = true
+      checkpoint()
+    }
+    setActiveMachines((machines) => {
+      const moved = translateAssembly(machines, ids, id, position, detachComponent)
+      return moved && detachComponent ? moved.map((machine) => machine.id === id ? {
+        ...machine,
+        groupId: undefined,
+        workstationId: workstationForFootprint(machine.componentType, machine.length, machine.rotation ?? 0, machine.position, moved, machine.breadth),
+      } : machine) : moved ?? machines
+    })
   }, [checkpoint])
   const settleMachine = useCallback((id: string) => {
+    const wasGroup = (dragIds.current?.size ?? 0) > 1
     dragging.current = false
-    setActiveMachines((machines) => mergeConveyors(machines, id))
+    dragIds.current = null
+    if (!wasGroup) setActiveMachines((machines) => mergeConveyors(machines, id))
   }, [])
   // A merge can absorb the selected belt's id.
   useEffect(() => {
-    if (selectedMachineId && !activeMachines.some((m) => m.id === selectedMachineId)) setSelectedMachineId(null)
-  }, [activeMachines, selectedMachineId])
+    setSelectedMachineIds((ids) => ids.every((id) => activeMachines.some((machine) => machine.id === id)) ? ids : ids.filter((id) => activeMachines.some((machine) => machine.id === id)))
+  }, [activeMachines])
+  const selectedAssemblyIds = new Set(selectedMachineIds.flatMap((id) => [...linkedAssembly(id, activeMachines)]))
+  const selectedLocked = assemblyLocked(selectedAssemblyIds, activeMachines)
+  const selectedGroupSize = selectedAssemblyIds.size
+  const canUngroup = activeMachines.some((machine) => selectedAssemblyIds.has(machine.id) && !!machine.groupId)
   const resizeSelected = useCallback((length: number) => {
+    if (selectedLocked || !selectedMachineId) return
+    const resized = resizeConveyorLayout(selectedMachineId, machinesRef.current, length)
+    if (!resized) return
     checkpoint()
-    setActiveMachines((machines) => machines.map((machine) => (machine.id === selectedMachineId ? resizeConveyor(machine, machines, length) : machine)))
-    settleMachine(selectedMachineId!)
-  }, [selectedMachineId, settleMachine, checkpoint])
+    setActiveMachines(resized)
+  }, [selectedMachineId, selectedLocked, checkpoint])
+  const resizeSelectedStorage = useCallback((axis: 'length' | 'breadth', size: number) => {
+    if (selectedLocked) return
+    const machine = machinesRef.current.find((item) => item.id === selectedMachineId)
+    if (!machine) return
+    const resized = resizeStorage(machine, machinesRef.current, axis, size)
+    if (resized === machine) return
+    checkpoint()
+    setActiveMachines((machines) => machines.map((item) => item.id === machine.id ? resized : item))
+  }, [checkpoint, selectedMachineId, selectedLocked])
   const deleteSelected = useCallback(() => {
-    if (!selectedMachineId) return
+    if (!selectedMachineId || selectedLocked) return
     checkpoint()
-    setActiveMachines((machines) => machines.filter((m) => m.id !== selectedMachineId))
-  }, [selectedMachineId, checkpoint])
+    setActiveMachines((machines) => machines.filter((machine) => !selectedAssemblyIds.has(machine.id)).map((machine) =>
+      machine.workstationId && selectedAssemblyIds.has(machine.workstationId) ? { ...machine, workstationId: undefined } : machine))
+  }, [selectedMachineId, selectedLocked, selectedAssemblyIds, checkpoint])
+  const groupSelected = () => {
+    if (selectedMachineIds.length < 2 || selectedLocked) return
+    const groupId = crypto.randomUUID()
+    checkpoint()
+    setActiveMachines((machines) => machines.map((machine) => selectedAssemblyIds.has(machine.id) ? { ...machine, groupId } : machine))
+  }
+  const ungroupSelected = () => {
+    if (!canUngroup || selectedLocked) return
+    checkpoint()
+    setActiveMachines((machines) => machines.map((machine) => selectedAssemblyIds.has(machine.id) ? { ...machine, groupId: undefined } : machine))
+  }
+  const toggleLock = () => {
+    if (!selectedGroupSize) return
+    checkpoint()
+    setActiveMachines((machines) => machines.map((machine) => selectedAssemblyIds.has(machine.id) ? { ...machine, locked: !selectedLocked } : machine))
+  }
+  const selectedStorage = activeMachines.find((machine) => machine.id === selectedMachineId && isResizableAreaType(machine.componentType))
   const fit = () => {
-    setSelectedMachineId(null)
+    setSelectedMachineIds([])
     setFocusRequest(null)
     setFitVersion((version) => version + 1)
   }
 
   return (
     <main
-      className={`factory-app${selectedMachineId ? ' factory-app--inspecting' : ''}`}
+      className="factory-app"
       aria-label="Factory floor viewer"
       onKeyDown={(event) => {
         if (event.key.toLowerCase() === 'r' && !event.repeat && !event.ctrlKey && !event.metaKey && !event.altKey) {
           if (editorMode.mode === 'placement') setPlacementRotation((turns) => (turns + 1) % 4)
-          else if (selectedMachineId) {
+          else if (selectedMachineId && !selectedLocked && selectedGroupSize === 1) {
             checkpoint()
             setActiveMachines((machines) => mergeConveyors(machines.map((m) => (m.id === selectedMachineId ? rotateMachine(m) : m)), selectedMachineId))
           }
@@ -97,6 +153,7 @@ export function App() {
       }}
       onPointerDown={(event) => {
         dragging.current = false // a new press starts a new undo step, even if the last drag was cut short
+        dragIds.current = null
         if (event.target instanceof HTMLCanvasElement) event.target.focus()
       }}
       onContextMenu={(event) => {
@@ -109,6 +166,8 @@ export function App() {
         placementRotation={placementRotation}
         activeMachines={activeMachines}
         selectedMachineId={selectedMachineId}
+        highlightedIds={selectedAssemblyIds}
+        lockedIds={new Set(activeMachines.filter((machine) => assemblyLocked(linkedAssembly(machine.id, activeMachines), activeMachines)).map((machine) => machine.id))}
         focusRequest={focusRequest}
         onSelect={selectMachine}
         onFocus={focusMachine}
@@ -121,14 +180,30 @@ export function App() {
       <ComponentSidebar
         editorMode={editorMode}
         machineCount={activeMachines.length}
-        selectedConveyor={activeMachines.find((m) => m.id === selectedMachineId && m.componentType === 'conveyor-belt')}
+        selectedConveyor={selectedLocked ? undefined : activeMachines.find((m) => m.id === selectedMachineId && m.componentType === 'conveyor-belt')}
+        selectedStorage={selectedLocked ? undefined : selectedStorage}
+        selectedCount={selectedMachineIds.length}
+        selectedGroupSize={selectedGroupSize}
+        selectedLocked={selectedLocked}
+        canUngroup={canUngroup && !selectedLocked}
+        onGroup={groupSelected}
+        onUngroup={ungroupSelected}
+        onToggleLock={toggleLock}
         onResize={resizeSelected}
-        canDelete={selectedMachineId !== null}
+        canResizeConveyor={(length) => {
+          return !selectedLocked && !!selectedMachineId && !!resizeConveyorLayout(selectedMachineId, activeMachines, length)
+        }}
+        onResizeStorage={resizeSelectedStorage}
+        canResizeStorage={(axis, size) => {
+          const machine = activeMachines.find((item) => item.id === selectedMachineId)
+          return !selectedLocked && !!machine && resizeStorage(machine, activeMachines, axis, size) !== machine
+        }}
+        canDelete={selectedMachineId !== null && !selectedLocked}
         onDelete={deleteSelected}
         canUndo={undoDepth > 0}
         onUndo={undo}
         onSelect={(componentType) => {
-          setSelectedMachineId(null)
+          setSelectedMachineIds([])
           setFocusRequest(null)
           setEditorMode({ mode: 'placement', componentType })
         }}

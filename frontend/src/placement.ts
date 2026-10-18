@@ -6,7 +6,12 @@ const DRAG_THRESHOLD = 5
 
 /** Raw [x, z] where the ray meets the floor plane. */
 export function floorPoint(raycaster: Raycaster): [number, number] | null {
-  const point = raycaster.ray.intersectPlane(floorPlane, new Vector3())
+  return planePoint(raycaster, 0)
+}
+
+/** Raw [x, z] where the ray meets a horizontal support surface. */
+export function planePoint(raycaster: Raycaster, height: number): [number, number] | null {
+  const point = raycaster.ray.intersectPlane(height === 0 ? floorPlane : new Plane(new Vector3(0, 1, 0), -height), new Vector3())
   return point && [point.x, point.z]
 }
 

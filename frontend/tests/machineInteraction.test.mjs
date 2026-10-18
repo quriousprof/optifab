@@ -39,7 +39,7 @@ test('double-click focus requires consecutive nearby clicks on the same machine'
   assert.equal(isDoubleMachineClick(first, { ...second, x: 320 }), false)
 })
 
-const machine = { id: 'robot', componentType: 'assembly-robot', position: [12, 0, -8] }
+const machine = { id: 'press', componentType: 'forming-machine', position: [12, 0, -8] }
 function cameraSetup() {
   const camera = new OrthographicCamera(-720, 720, 450, -450, 0.1, 10000)
   camera.position.set(60, 60, 60)
@@ -50,7 +50,7 @@ function cameraSetup() {
 test('focus frames the selected machine while preserving the isometric viewing direction', () => {
   const { camera, target } = cameraSetup()
   const goal = getMachineFocus(machine, camera, target, 1440, 900)
-  assert.deepEqual(goal.target.toArray(), [12, 2, -8])
+  assert.deepEqual(goal.target.toArray(), [12, 1.7, -8])
   assert.deepEqual(goal.position.clone().sub(goal.target).toArray(), [60, 60, 60])
   assert(goal.zoom > camera.zoom && goal.zoom <= 80)
 })

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { OrthographicCamera, Raycaster, Vector2, Vector3 } from 'three'
-import { FACTORY_COMPONENTS, FLOOR_SIZE } from '../src/factoryComponents.ts'
+import { FACTORY_COMPONENTS, FLOOR_SIZE, footprint } from '../src/factoryComponents.ts'
 import { getSnappedFloorPosition, isPlacementClick, isPlacementPointer, trackPlacementDrag } from '../src/placement.ts'
 
 function rayAt(x, z) {
@@ -26,27 +26,33 @@ test('raycasting matches the floor under an isometric orthographic pointer', () 
   const raycaster = new Raycaster()
   const pointer = new Vector2(screenPoint.x, screenPoint.y)
   raycaster.setFromCamera(pointer, camera)
-  assert.deepEqual(getSnappedFloorPosition(raycaster, 'cnc-milling-machine'), [11, 0, -8])
+  assert.deepEqual(getSnappedFloorPosition(raycaster, 'cutting-machine'), [11, 0, -8])
 
   // Keep the same screen pointer while panning the camera along the floor.
   camera.position.x += 10
   camera.updateMatrixWorld()
   raycaster.setFromCamera(pointer, camera)
-  assert.deepEqual(getSnappedFloorPosition(raycaster, 'cnc-milling-machine'), [21, 0, -8])
+  assert.deepEqual(getSnappedFloorPosition(raycaster, 'cutting-machine'), [21, 0, -8])
 })
 
 test('placement rejects the infinite backdrop and machine footprints beyond the floor', () => {
   const edge = FLOOR_SIZE / 2
   assert.equal(getSnappedFloorPosition(rayAt(edge + 1, 0), 'conveyor-belt'), null)
   assert.equal(getSnappedFloorPosition(rayAt(edge - 0.4, 0), 'conveyor-belt'), null) // rounds to 50, so it would overhang
-  assert.deepEqual(getSnappedFloorPosition(rayAt(edge - 1, 0), 'conveyor-belt'), [49, 0, 0])
+  assert.equal(getSnappedFloorPosition(rayAt(edge - 1, 0), 'conveyor-belt'), null)
+  assert.deepEqual(getSnappedFloorPosition(rayAt(edge - 2, 0), 'conveyor-belt'), [48, 0, 0])
   assert.equal(getSnappedFloorPosition(rayAt(edge - 1, 0), 'conveyor-belt', [6, 2]), null)
-  assert.equal(getSnappedFloorPosition(rayAt(0, -edge + 1), 'cnc-milling-machine'), null)
+  assert.equal(getSnappedFloorPosition(rayAt(0, -edge + 1), 'cutting-machine'), null)
+})
+
+test('a rotated deposit uses its resized breadth and length for floor bounds', () => {
+  assert.deepEqual(footprint('raw-material', 12, 1, 8), [8, 12])
+  assert.deepEqual(footprint('finished-goods', 10, 0, 7), [10, 7])
 })
 
 test('rays parallel to or pointing away from the floor have no preview', () => {
-  assert.equal(getSnappedFloorPosition(new Raycaster(new Vector3(0, 10, 0), new Vector3(1, 0, 0)), 'assembly-robot'), null)
-  assert.equal(getSnappedFloorPosition(new Raycaster(new Vector3(0, 10, 0), new Vector3(0, 1, 0)), 'assembly-robot'), null)
+  assert.equal(getSnappedFloorPosition(new Raycaster(new Vector3(0, 10, 0), new Vector3(1, 0, 0)), 'forming-machine'), null)
+  assert.equal(getSnappedFloorPosition(new Raycaster(new Vector3(0, 10, 0), new Vector3(0, 1, 0)), 'forming-machine'), null)
 })
 
 const pointer = (changes = {}) => ({
