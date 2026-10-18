@@ -1,23 +1,28 @@
 name: optifab
 
-# Service layout only. Add Dockerfiles and start commands as each app is built.
 services:
   frontend:
+    image: sohamghugare/optifab-frontend
     build:
       context: ./frontend
     ports:
-      - "3000:3000"
+      - "80:80"
+      - "443:443"
     volumes:
-      - ./frontend:/app
-    environment:
-      API_URL: http://backend:8000
+      - caddy_data:/data
+      - caddy_config:/config
     depends_on:
       - backend
 
   backend:
+    image: sohamghugare/optifab-backend
     build:
       context: ./backend
-    ports:
-      - "8000:8000"
+    expose:
+      - "8000"
     volumes:
       - ./backend:/app
+
+volumes:
+  caddy_data:
+  caddy_config:
