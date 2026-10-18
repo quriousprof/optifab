@@ -28,12 +28,33 @@ function link(a: Heading, b: Heading): Point | null {
   return dot === 0 ? [BEND * (ax + bx), BEND * (az + bz)] : null
 }
 
-function mated(a: Machine, b: Machine): boolean {
-  if (a.componentType === 'workstation' || b.componentType === 'workstation' || a.workstationId !== b.workstationId) return false
+function mated(a: Machine, b: Machine, machines: PlacedMachine[]): boolean {
+  if (a.componentType === 'workstation' || b.componentType === 'workstation') return false
   if (a.componentType === 'finished-goods' || b.componentType === 'raw-material') return false
   const l = link(a, b)
   const out = ports(a).out
-  return l !== null && same([out[0] + l[0], out[1] + l[1]], ports(b).in)
+  if (l === null || !same([out[0] + l[0], out[1] + l[1]], ports(b).in)) return false
+  if (a.workstationId === b.workstationId) return true
+  if (a.workstationId && b.workstationId) return false
+  // A raised belt joins a floor belt only at the workstation edge, in a straight line.
+  if (l[0] || l[1]) return false
+  const hosted = a.workstationId ? a : b
+  return hostedPortAtEdge(hosted, hosted === a ? 'out' : 'in', machines)
+}
+
+function hostedPortAtEdge(hosted: Machine, side: 'in' | 'out', machines: PlacedMachine[]): boolean {
+  const host = machines.find((machine) => machine.id === hosted.workstationId)
+  if (!host || host.componentType !== 'workstation') return false
+  const [width, depth] = footprint('workstation', host.length, host.rotation ?? 0, host.breadth)
+  const [dx, dz] = dir(hosted)
+  const sign = side === 'out' ? 1 : -1
+  const edge = dx ? host.position[0] + sign * dx * width / 2 : host.position[2] + sign * dz * depth / 2
+  const port = ports(hosted)[side]
+  const contact = dx ? port[0] : port[1]
+  const across = dx ? port[1] : port[0]
+  const hostAcross = dx ? host.position[2] : host.position[0]
+  const halfAcross = dx ? depth / 2 : width / 2
+  return Math.abs(contact - edge) < 1e-4 && Math.abs(across - hostAcross) + machineDepth('conveyor-belt') / 2 <= halfAcross
 }
 
 function ports(m: Machine): { in: Point; out: Point } {
@@ -47,7 +68,7 @@ const same = (a: Point, b: Point) => Math.hypot(a[0] - b[0], a[1] - b[1]) < 1e-4
 /** Which ports of `m` currently mate with another machine (derived from positions, so nothing to keep in sync). */
 export function connectedPorts(m: PlacedMachine, machines: PlacedMachine[]) {
   const others = machines.filter((o) => o.id !== m.id)
-  return { in: others.some((o) => mated(o, m)), out: others.some((o) => mated(m, o)) }
+  return { in: others.some((o) => mated(o, m, machines)), out: others.some((o) => mated(m, o, machines)) }
 }
 
 /** Every component linked through touching ports or an explicit user group. Mounting alone does not group a machine with its workstation. */
@@ -57,7 +78,7 @@ export function linkedAssembly(id: string, machines: PlacedMachine[]): Set<strin
     const current = machines.find((machine) => machine.id === currentId)!
     for (const other of machines) {
       if (members.has(other.id)) continue
-      if ((current.groupId && current.groupId === other.groupId) || mated(current, other) || mated(other, current)) members.add(other.id)
+      if ((current.groupId && current.groupId === other.groupId) || mated(current, other, machines) || mated(other, current, machines)) members.add(other.id)
     }
   }
   return members
@@ -93,7 +114,7 @@ export function translateAssembly(machines: PlacedMachine[], ids: Set<string>, d
     const [width, depth] = footprint(machine.componentType, machine.length, machine.rotation ?? 0, machine.breadth)
     return fitsFloor(machine.position[0], machine.position[2], width, depth) &&
       (detach || !machine.workstationId || workstationForFootprint(machine.componentType, machine.length, machine.rotation ?? 0, machine.position, moved, machine.breadth) === machine.workstationId)
-  }) ? moved : null
+  }) && (detach || preservesSurfaceTransitions(machines, moved)) ? moved : null
 }
 
 /** Corner tiles: wherever one piece turns a right angle into another. `from`/`to` are the flow directions. */
@@ -103,12 +124,36 @@ export function cornerTiles(machines: PlacedMachine[]) {
     for (const b of machines) {
       const [ax, az] = dir(a)
       const [bx, bz] = dir(b)
-      if (a === b || ax * bx + az * bz !== 0 || !mated(a, b)) continue
+      if (a === b || ax * bx + az * bz !== 0 || !mated(a, b, machines)) continue
       const out = ports(a).out
       tiles.push({ center: [out[0] + ax * BEND, out[1] + az * BEND], from: [ax, az], to: [bx, bz], ids: [a.id, b.id] })
     }
   }
   return tiles
+}
+
+/** Sloped visual joints where a conveyor crosses between a workstation deck and the floor. */
+export function surfaceTransitions(machines: PlacedMachine[]) {
+  const transitions: { center: Point; rotation: number; fromHeight: number; toHeight: number; ids: [string, string] }[] = []
+  for (const a of machines) for (const b of machines) {
+    if (a === b || a.workstationId === b.workstationId || !mated(a, b, machines)) continue
+    if (a.componentType !== 'conveyor-belt' && b.componentType !== 'conveyor-belt') continue
+    transitions.push({
+      center: ports(a).out,
+      rotation: a.rotation ?? 0,
+      fromHeight: a.workstationId ? WORKSTATION_HEIGHT : 0,
+      toHeight: b.workstationId ? WORKSTATION_HEIGHT : 0,
+      ids: [a.id, b.id],
+    })
+  }
+  return transitions
+}
+
+function preservesSurfaceTransitions(before: PlacedMachine[], after: PlacedMachine[]): boolean {
+  const required = surfaceTransitions(before)
+  if (!required.length) return true
+  const present = surfaceTransitions(after)
+  return required.every((joint) => present.some((candidate) => candidate.ids[0] === joint.ids[0] && candidate.ids[1] === joint.ids[1]))
 }
 
 /** Ids of the clicked conveyor plus every conveyor chained to it, in either direction. */
@@ -118,7 +163,7 @@ export function conveyorRun(id: string, machines: PlacedMachine[]): Set<string> 
   for (const current of run) {
     const a = belts.find((m) => m.id === current)!
     for (const b of belts) {
-      if (!run.has(b.id) && (mated(a, b) || mated(b, a))) run.add(b.id)
+      if (!run.has(b.id) && (mated(a, b, machines) || mated(b, a, machines))) run.add(b.id)
     }
   }
   return run
@@ -179,12 +224,21 @@ const fits = (type: FactoryComponentType, length: number | undefined, rotation: 
 export function resolvePlacement(raycaster: Raycaster, type: FactoryComponentType, length: number | undefined, rotation: number, machines: PlacedMachine[], excludeId?: string, breadth?: number): FloorPosition | null {
   const base = getSnappedFloorPosition(raycaster, type, footprint(type, length, rotation, breadth))
   if (!base) return null
-  const snapped = snapToConnections(type, length, rotation, base, machines.filter((m) => m.id !== excludeId && !m.workstationId))
+  const snapped = snapToConnections(type, length, rotation, base, machines.filter((m) =>
+    m.id !== excludeId && (!m.workstationId || hostedPortAtEdge(m, 'in', machines) || hostedPortAtEdge(m, 'out', machines))))
   return fits(type, length, rotation, snapped, breadth) ? snapped : base
 }
 
 export type PlacementTarget = { position: FloorPosition; workstationId?: string }
 const workstationPlane = new Plane(new Vector3(0, 1, 0), -WORKSTATION_HEIGHT)
+
+export function workstationAtPoint([x, z]: Point, machines: PlacedMachine[]): PlacedMachine | undefined {
+  return machines.find((machine) => {
+    if (machine.componentType !== 'workstation') return false
+    const [width, depth] = footprint('workstation', machine.length, machine.rotation ?? 0, machine.breadth)
+    return Math.abs(x - machine.position[0]) <= width / 2 && Math.abs(z - machine.position[2]) <= depth / 2
+  })
+}
 
 export function workstationForFootprint(type: FactoryComponentType, length: number | undefined, rotation: number, position: FloorPosition, machines: PlacedMachine[], breadth?: number): string | undefined {
   if (type === 'workstation') return undefined
@@ -201,11 +255,7 @@ export function workstationForFootprint(type: FactoryComponentType, length: numb
 export function resolvePlacementTarget(raycaster: Raycaster, type: FactoryComponentType, length: number | undefined, rotation: number, machines: PlacedMachine[], breadth?: number): PlacementTarget | null {
   if (type !== 'workstation') {
     const hit = raycaster.ray.intersectPlane(workstationPlane, new Vector3())
-    const host = hit && machines.find((machine) => {
-      if (machine.componentType !== 'workstation') return false
-      const [width, depth] = footprint('workstation', machine.length, machine.rotation ?? 0, machine.breadth)
-      return Math.abs(hit.x - machine.position[0]) <= width / 2 && Math.abs(hit.z - machine.position[2]) <= depth / 2
-    })
+    const host = hit && workstationAtPoint([hit.x, hit.z], machines)
     if (host && hit) {
       const x = Math.round(hit.x) || 0
       const z = Math.round(hit.z) || 0
@@ -220,14 +270,14 @@ export function resolvePlacementTarget(raycaster: Raycaster, type: FactoryCompon
   return position ? { position } : null
 }
 
-export type Laid = { position: FloorPosition; length: number; rotation: number }
+export type Laid = { position: FloorPosition; length: number; rotation: number; workstationId?: string }
 
 /**
  * Lay a conveyor from `start` toward `cursor`, along whichever axis the cursor is further on.
  * The start snaps to a nearby output and the end to an input on the same line, like pipe-laying tools.
  */
 export function layConveyor(start: Point, cursor: Point, machines: PlacedMachine[], idleRotation: number): Laid | null {
-  const source = machines.filter((m) => m.componentType !== 'finished-goods').map((m) => ({ m, p: ports(m).out }))
+  const source = machines.filter((m) => m.componentType !== 'finished-goods' && m.componentType !== 'workstation').map((m) => ({ m, p: ports(m).out }))
     .filter(({ p }) => Math.hypot(p[0] - start[0], p[1] - start[1]) < SNAP_DISTANCE)
     .sort((a, b) => Math.hypot(a.p[0] - start[0], a.p[1] - start[1]) - Math.hypot(b.p[0] - start[0], b.p[1] - start[1]))[0]
   const o = source?.p ?? start
@@ -258,6 +308,36 @@ export function layConveyor(start: Point, cursor: Point, machines: PlacedMachine
   return fits(type, length, rotation, position) ? { position, length, rotation } : null
 }
 
+/** Lay from one support surface, splitting at the workstation edge when the gesture continues onto the floor. */
+export function layConveyorRun(start: Point, cursor: Point, machines: PlacedMachine[], idleRotation: number, workstationId?: string): Laid[] | null {
+  if (!workstationId) {
+    const laid = layConveyor(start, cursor, machines.filter((machine) => !machine.workstationId || hostedPortAtEdge(machine, 'out', machines)), idleRotation)
+    return laid ? [laid] : null
+  }
+  const host = machines.find((machine) => machine.id === workstationId && machine.componentType === 'workstation')
+  if (!host) return null
+  const laid = layConveyor(start, cursor, machines.filter((machine) => machine.workstationId === workstationId), idleRotation)
+  if (!laid) return null
+  const [dx, dz] = DIRECTIONS[laid.rotation]
+  const source: Point = [laid.position[0] - dx * laid.length / 2, laid.position[2] - dz * laid.length / 2]
+  const [width, depth] = footprint('workstation', host.length, host.rotation ?? 0, host.breadth)
+  const edge = dx ? host.position[0] + dx * width / 2 : host.position[2] + dz * depth / 2
+  const deckLength = Math.max(0, Math.min(laid.length, dx ? (edge - source[0]) * dx : (edge - source[1]) * dz))
+  const pieces: Laid[] = []
+  if (deckLength > 0.01) {
+    const position: FloorPosition = [source[0] + dx * deckLength / 2, 0, source[1] + dz * deckLength / 2]
+    if (workstationForFootprint('conveyor-belt', deckLength, laid.rotation, position, [host]) !== workstationId) return null
+    pieces.push({ position, length: deckLength, rotation: laid.rotation, workstationId })
+  }
+  const floorLength = laid.length - deckLength
+  if (floorLength >= MIN_LENGTH) {
+    const position: FloorPosition = [source[0] + dx * (deckLength + floorLength / 2), 0, source[1] + dz * (deckLength + floorLength / 2)]
+    if (!fits('conveyor-belt', floorLength, laid.rotation, position)) return null
+    pieces.push({ position, length: floorLength, rotation: laid.rotation })
+  }
+  return pieces.length ? pieces : null
+}
+
 /** Quarter-turn a machine in place; ignored when the turned footprint would leave the floor. */
 export function rotateMachine(m: PlacedMachine): PlacedMachine {
   const rotation = ((m.rotation ?? 0) + 1) % 4
@@ -285,7 +365,8 @@ export function resizeStorage(m: PlacedMachine, machines: PlacedMachine[], axis:
   const resized = { ...m, position, [axis]: next }
   const mountedFit = m.componentType !== 'workstation' || machines.every((child) => child.workstationId !== m.id ||
     workstationForFootprint(child.componentType, child.length, child.rotation ?? 0, child.position, [resized], child.breadth) === m.id)
-  return fits(resized.componentType, resized.length, resized.rotation ?? 0, resized.position, resized.breadth) && mountedFit &&
+  const connectedFit = m.componentType !== 'workstation' || preservesSurfaceTransitions(machines, machines.map((machine) => machine.id === m.id ? resized : machine))
+  return fits(resized.componentType, resized.length, resized.rotation ?? 0, resized.position, resized.breadth) && mountedFit && connectedFit &&
     (!m.workstationId || workstationForFootprint(resized.componentType, resized.length, resized.rotation ?? 0, resized.position, machines, resized.breadth) === m.workstationId) ? resized : m
 }
 
@@ -322,7 +403,7 @@ export function resizeConveyorLayout(id: string, machines: PlacedMachine[], requ
     while (pending.length) {
       const current = pending.pop()!
       for (const next of machines) {
-        if (next.id === id || downstream.has(next.id) || !mated(current, next)) continue
+        if (next.id === id || downstream.has(next.id) || !mated(current, next, machines)) continue
         downstream.add(next.id)
         pending.push(next)
       }
@@ -336,5 +417,6 @@ export function resizeConveyorLayout(id: string, machines: PlacedMachine[], requ
       : machine
   })
   return updated.every((machine) => fits(machine.componentType, machine.length, machine.rotation ?? 0, machine.position, machine.breadth) &&
-    (!machine.workstationId || workstationForFootprint(machine.componentType, machine.length, machine.rotation ?? 0, machine.position, updated, machine.breadth) === machine.workstationId)) ? updated : null
+    (!machine.workstationId || workstationForFootprint(machine.componentType, machine.length, machine.rotation ?? 0, machine.position, updated, machine.breadth) === machine.workstationId)) &&
+    preservesSurfaceTransitions(machines, updated) ? updated : null
 }

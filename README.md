@@ -39,6 +39,8 @@ Machines mounted on a workstation remain individually selectable and draggable a
 
 Select a placed conveyor to change its length with the sidebar buttons or slider. Its connected input stays anchored and any machines connected beyond its output move with it; if only its output is connected, that end stays anchored instead. Resizes that would push any linked component beyond the floor are refused, and each accepted change can be undone.
 
+Drag a conveyor from a workstation across its edge to lay one connected run: a raised deck section and a floor section are created in one undo step, with a short sloped joint at the height change. Existing deck and floor belts also show that joint when their ports meet at the workstation edge.
+
 Run `npm run build` for type checking and a production build, then `npm run preview` to serve that build. The scene supports component layout prototyping; simulation state will be integrated against the shared contracts.
 
 Run `npm test` on Node.js 22.12+ for placement raycasting, snapping, floor bounds, click-versus-drag checks, machine picking, double-click recognition, and camera focus/easing.

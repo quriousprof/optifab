@@ -1,4 +1,5 @@
 import { Edges, Html } from '@react-three/drei'
+import { CatmullRomCurve3, Vector3 } from 'three'
 import { getFactoryComponent, machineDepth, machineWidth, type FactoryComponentType, type FloorPosition } from './factoryComponents'
 
 const noRaycast = () => {}
@@ -27,14 +28,65 @@ function CylinderPart({ at, radius, height, color, ghost, machineId, rotation }:
 export function CornerMesh({ center, from, to, highlighted, elevation = 0 }: { center: [number, number]; from: [number, number]; to: [number, number]; highlighted: boolean; elevation?: number }) {
   const pivot = [center[0] - from[0] + to[0], center[1] - from[1] + to[1]]
   const start = Math.atan2(from[0] - to[0], from[1] - to[1]) - Math.PI / 4
-  return <mesh position={[pivot[0], 0.5 + elevation, pivot[1]]} castShadow receiveShadow raycast={noRaycast}>
-    <cylinderGeometry args={[2, 2, 1, 24, 1, false, start, Math.PI / 2]} />
-    <meshStandardMaterial color="#378568" roughness={0.65} />
-    {highlighted && <Edges color="#29edff" lineWidth={1.8} toneMapped={false} depthTest={false} raycast={noRaycast} />}
-  </mesh>
+  const rail = (radius: number) => new CatmullRomCurve3(Array.from({ length: 13 }, (_, index) => {
+    const angle = start + index * Math.PI / 24
+    return new Vector3(Math.sin(angle) * radius, 0, Math.cos(angle) * radius)
+  }))
+  return <group position={[pivot[0], elevation, pivot[1]]}>
+    <mesh position={[0, 0.36, 0]} castShadow receiveShadow raycast={noRaycast}>
+      <cylinderGeometry args={[2.12, 2.12, 0.55, 32, 1, false, start, Math.PI / 2]} />
+      <meshStandardMaterial color="#334b50" roughness={0.62} metalness={0.18} />
+      {highlighted && <Edges color="#29edff" lineWidth={1.8} toneMapped={false} depthTest={false} raycast={noRaycast} />}
+    </mesh>
+    <mesh position={[0, 0.67, 0]} receiveShadow raycast={noRaycast}>
+      <cylinderGeometry args={[1.94, 1.94, 0.09, 32, 1, false, start, Math.PI / 2]} />
+      <meshStandardMaterial color="#576f70" roughness={0.6} metalness={0.16} />
+    </mesh>
+    {[0.13, 2.05].map((radius) => <mesh key={radius} position={[0, 0.77, 0]} castShadow raycast={noRaycast}>
+      <tubeGeometry args={[rail(radius), 24, 0.09, 8, false]} />
+      <meshStandardMaterial color="#378568" roughness={0.5} />
+    </mesh>)}
+    {Array.from({ length: 5 }, (_, index) => {
+      const angle = start + (index + 0.5) * Math.PI / 10
+      return <mesh key={index} position={[Math.sin(angle) * 1.04, 0.73, Math.cos(angle) * 1.04]} rotation={[0, angle, 0]} raycast={noRaycast}>
+        <boxGeometry args={[0.07, 0.04, 1.7]} />
+        <meshStandardMaterial color="#b5c6c6" roughness={0.55} />
+      </mesh>
+    })}
+  </group>
 }
 
-export function MachineMesh({ componentType, position, ghost = false, machineId, selected = false, highlighted = false, locked = false, mounted = false, groupSize = 1, onDelete, length, breadth, rotation = 0, ports }: {
+/** Short raised-to-floor conveyor joint, drawn across a connected pair's common port. */
+export function TransitionMesh({ center, rotation, fromHeight, toHeight, highlighted, ghost = false }: { center: [number, number]; rotation: number; fromHeight: number; toHeight: number; highlighted: boolean; ghost?: boolean }) {
+  const tilt = Math.atan2(toHeight - fromHeight, 2)
+  return <group position={[center[0], (fromHeight + toHeight) / 2, center[1]]} rotation={[0, rotation * Math.PI / 2, 0]}>
+    <group rotation={[0, 0, tilt]}>
+      <mesh position={[0, 0.38, 0]} castShadow={!ghost} receiveShadow={!ghost} raycast={noRaycast}>
+        <boxGeometry args={[2.1, 0.44, 2.18]} />
+        <meshStandardMaterial color="#334b50" roughness={0.62} metalness={0.18} transparent={ghost} opacity={ghost ? 0.35 : 1} depthWrite={!ghost} />
+      </mesh>
+      <mesh position={[0, 0.65, 0]} receiveShadow raycast={noRaycast}>
+        <boxGeometry args={[2.08, 0.09, 1.78]} />
+        <meshStandardMaterial color="#576f70" roughness={0.6} metalness={0.16} transparent={ghost} opacity={ghost ? 0.35 : 1} depthWrite={!ghost} />
+      </mesh>
+      {[-1.04, 1.04].map((z) => <mesh key={z} position={[0, 0.77, z]} castShadow raycast={noRaycast}>
+        <boxGeometry args={[2.12, 0.32, 0.12]} />
+        <meshStandardMaterial color="#378568" roughness={0.5} transparent={ghost} opacity={ghost ? 0.35 : 1} depthWrite={!ghost} />
+      </mesh>)}
+      {[-0.62, 0, 0.62].map((x) => <mesh key={x} position={[x, 0.72, 0]} raycast={noRaycast}>
+        <boxGeometry args={[0.08, 0.04, 1.72]} />
+        <meshStandardMaterial color="#b5c6c6" transparent={ghost} opacity={ghost ? 0.35 : 1} depthWrite={!ghost} />
+      </mesh>)}
+      {highlighted && <mesh position={[0, 0.42, 0]} raycast={noRaycast}>
+        <boxGeometry args={[2.2, 0.9, 2.3]} />
+        <meshBasicMaterial visible={false} />
+        <Edges color="#29edff" lineWidth={1.8} toneMapped={false} depthTest={false} raycast={noRaycast} />
+      </mesh>}
+    </group>
+  </group>
+}
+
+export function MachineMesh({ componentType, position, ghost = false, machineId, selected = false, highlighted = false, locked = false, mounted = false, transitionIn = false, transitionOut = false, groupSize = 1, onDelete, length, breadth, rotation = 0, ports }: {
   componentType: FactoryComponentType
   position: FloorPosition
   ghost?: boolean
@@ -43,6 +95,8 @@ export function MachineMesh({ componentType, position, ghost = false, machineId,
   highlighted?: boolean
   locked?: boolean
   mounted?: boolean
+  transitionIn?: boolean
+  transitionOut?: boolean
   groupSize?: number
   onDelete?: () => void
   length?: number
@@ -54,21 +108,23 @@ export function MachineMesh({ componentType, position, ghost = false, machineId,
   const [, height] = component.dimensions
   const width = machineWidth(componentType, length)
   const depth = machineDepth(componentType, breadth)
-  const slatCount = Math.min(24, Math.max(2, Math.floor(width / 0.65)))
+  const beltWidth = Math.max(0.1, width - (transitionIn ? 1 : 0) - (transitionOut ? 1 : 0))
+  const beltShift = ((transitionIn ? 1 : 0) - (transitionOut ? 1 : 0)) / 2
+  const slatCount = Math.min(24, Math.max(2, Math.floor(beltWidth / 0.65)))
   const part = (at: Point, size: Point, color: string, metalness?: number, emissive?: string) =>
     <BoxPart at={at} size={size} color={color} ghost={ghost} machineId={machineId} metalness={metalness} emissive={emissive} />
   const cylinder = (at: Point, radius: number, partHeight: number, color: string, partRotation?: Point) =>
     <CylinderPart at={at} radius={radius} height={partHeight} color={color} ghost={ghost} machineId={machineId} rotation={partRotation} />
 
   return <group position={position} rotation={[0, rotation * Math.PI / 2, 0]} name={`${ghost ? 'Preview' : 'Component'}: ${component.name}`}>
-    {componentType === 'conveyor-belt' ? <>
-      {part([0, 0.36, 0], [width, 0.55, 2.2], '#334b50')}
-      {part([0, 0.67, 0], [width - 0.12, 0.09, 1.78], '#576f70')}
-      {[-1.04, 1.04].map((z) => <BoxPart key={z} at={[0, 0.77, z]} size={[width, 0.32, 0.12]} color={component.color} ghost={ghost} machineId={machineId} />)}
+    {componentType === 'conveyor-belt' ? <group position={[beltShift, 0, 0]}>
+      {part([0, 0.36, 0], [beltWidth, 0.55, 2.2], '#334b50')}
+      {part([0, 0.67, 0], [Math.max(0.08, beltWidth - 0.12), 0.09, 1.78], '#576f70')}
+      {[-1.04, 1.04].map((z) => <BoxPart key={z} at={[0, 0.77, z]} size={[beltWidth, 0.32, 0.12]} color={component.color} ghost={ghost} machineId={machineId} />)}
       {Array.from({ length: slatCount }, (_, index) =>
-        <BoxPart key={index} at={[-width / 2 + (index + 0.5) * width / slatCount, 0.73, 0]} size={[0.08, 0.04, 1.72]} color="#b5c6c6" ghost={ghost} machineId={machineId} />)}
-      {[-width / 2 + 0.55, width / 2 - 0.55].map((x) => <BoxPart key={x} at={[x, 0.12, 0]} size={[0.16, 0.24, 1.82]} color="#61747a" ghost={ghost} machineId={machineId} />)}
-    </> : componentType === 'workstation' ? <>
+        <BoxPart key={index} at={[-beltWidth / 2 + (index + 0.5) * beltWidth / slatCount, 0.73, 0]} size={[0.08, 0.04, 1.72]} color="#b5c6c6" ghost={ghost} machineId={machineId} />)}
+      {beltWidth > 1.2 && [-beltWidth / 2 + 0.55, beltWidth / 2 - 0.55].map((x) => <BoxPart key={x} at={[x, 0.12, 0]} size={[0.16, 0.24, 1.82]} color="#61747a" ghost={ghost} machineId={machineId} />)}
+    </group> : componentType === 'workstation' ? <>
       {part([0, 0.23, 0], [width, 0.46, depth], '#8399a5', 0.26)}
       {part([0, 0.48, 0], [width - 0.24, 0.04, depth - 0.24], '#c7d6dc', 0.2)}
       {[-1, 1].map((side) => <BoxPart key={side} at={[0, 0.5, side * (depth / 2 - 0.17)]} size={[width - 0.6, 0.025, 0.08]} color="#eef5f6" ghost={ghost} machineId={machineId} />)}

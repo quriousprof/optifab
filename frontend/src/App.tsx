@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { FactoryViewport } from './FactoryViewport'
 import type { PlaceOptions } from './SceneInteraction'
 import { ComponentSidebar } from './ComponentSidebar'
-import { assemblyLocked, linkedAssembly, mergeConveyors, movementAssembly, resizeConveyorLayout, resizeStorage, rotateMachine, translateAssembly, workstationForFootprint } from './connections'
+import { assemblyLocked, linkedAssembly, mergeConveyors, movementAssembly, resizeConveyorLayout, resizeStorage, rotateMachine, translateAssembly, workstationForFootprint, type Laid } from './connections'
 import { FLOOR_SIZE, isResizableAreaType, type EditorMode, type FactoryComponentType, type FloorPosition, type PlacedMachine } from './factoryComponents'
 
 export function App() {
@@ -44,6 +44,13 @@ export function App() {
     const machine: PlacedMachine = { id: crypto.randomUUID(), componentType, position, ...options }
     checkpoint()
     setActiveMachines((machines) => mergeConveyors([...machines, machine]))
+  }, [checkpoint])
+  const placeConveyorRun = useCallback((pieces: Laid[]) => {
+    if (!pieces.length) return
+    checkpoint()
+    setActiveMachines((machines) => mergeConveyors([...machines, ...pieces.map((piece): PlacedMachine => ({
+      id: crypto.randomUUID(), componentType: 'conveyor-belt', ...piece,
+    }))]))
   }, [checkpoint])
   const moveMachine = useCallback((id: string, position: FloorPosition, detach = false) => {
     const dragged = machinesRef.current.find((machine) => machine.id === id)
@@ -172,6 +179,7 @@ export function App() {
         onSelect={selectMachine}
         onFocus={focusMachine}
         onPlace={placeMachine}
+        onPlaceRun={placeConveyorRun}
         onMove={moveMachine}
         onSettle={settleMachine}
         onDelete={deleteSelected}

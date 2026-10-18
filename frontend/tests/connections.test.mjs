@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { Raycaster, Vector3 } from 'three'
-import { assemblyLocked, connectedPorts, cornerTiles, linkedAssembly, mergeConveyors, conveyorRun, layConveyor, movementAssembly, resizeConveyor, resizeConveyorLayout, resizeStorage, resolvePlacementTarget, rotateMachine, snapToConnections, translateAssembly, workstationForFootprint } from '../src/connections.ts'
+import { assemblyLocked, connectedPorts, cornerTiles, linkedAssembly, mergeConveyors, conveyorRun, layConveyor, layConveyorRun, movementAssembly, resizeConveyor, resizeConveyorLayout, resizeStorage, resolvePlacementTarget, rotateMachine, snapToConnections, surfaceTransitions, translateAssembly, workstationForFootprint } from '../src/connections.ts'
 
 const belt = { id: 'b', componentType: 'conveyor-belt', position: [0, 0, 0], length: 6 } // ports at x=-3 (in) / x=3 (out)
 const cnc = { id: 'c', componentType: 'cutting-machine', position: [6, 0, 0] } // width 6: in-port at x=3
@@ -164,6 +164,37 @@ test('laying drags out a conveyor along the dominant axis', () => {
 test('laying starts at a nearby output and ends at an aligned input', () => {
   const laid = layConveyor([4, 1], [8, 0], [belt, { ...cnc, position: [12, 0, 0] }], 0) // belt out at 3; cutter in at 9
   assert.deepEqual(laid, { position: [6, 0, 0], length: 6, rotation: 0 })
+})
+
+test('one drag lays a connected conveyor across a workstation edge', () => {
+  const host = { id: 'ws', componentType: 'workstation', position: [0, 0, 0] }
+  const cutter = { ...cnc, position: [-4, 0, 0], workstationId: 'ws' } // output at x=-1
+  const pieces = layConveyorRun([-1, 0], [19, 0], [host, cutter], 0, 'ws')
+  assert.deepEqual(pieces, [
+    { position: [4, 0, 0], length: 10, rotation: 0, workstationId: 'ws' },
+    { position: [14, 0, 0], length: 10, rotation: 0 },
+  ])
+  const [deck, floor] = pieces.map((piece, index) => ({ id: `belt-${index}`, componentType: 'conveyor-belt', ...piece }))
+  const machines = [host, cutter, deck, floor]
+  assert.deepEqual(connectedPorts(deck, machines), { in: true, out: true })
+  assert.deepEqual(connectedPorts(floor, machines), { in: true, out: false })
+  assert.deepEqual([...linkedAssembly('c', machines)].sort(), ['belt-0', 'belt-1', 'c'])
+  assert.deepEqual(surfaceTransitions(machines), [{ center: [9, 0], rotation: 0, fromHeight: 0.5, toHeight: 0, ids: ['belt-0', 'belt-1'] }])
+  assert.equal(mergeConveyors(machines).length, 4)
+  assert.equal(connectedPorts(deck, [host, deck, { ...floor, position: [8, 0, 0] }]).out, false)
+  assert.deepEqual(layConveyorRun([9, 0], [19, 0], [host, deck], 0), [{ position: [14, 0, 0], length: 10, rotation: 0 }])
+  assert.equal(resizeStorage(host, machines, 'length', 20), host) // would strand the edge joint
+  assert.equal(resizeStorage(host, machines, 'breadth', 20).breadth, 20)
+  assert.equal(translateAssembly(machines, linkedAssembly('belt-0', machines), 'belt-0', [5, 0, 0]), null)
+  assert.deepEqual(translateAssembly(machines, movementAssembly('ws', machines), 'ws', [1, 0, 0]).map((machine) => machine.position), [[1, 0, 0], [-3, 0, 0], [5, 0, 0], [15, 0, 0]])
+})
+
+test('a floor conveyor can feed a workstation only at its incoming edge', () => {
+  const host = { id: 'ws', componentType: 'workstation', position: [0, 0, 0] }
+  const floor = { id: 'floor', componentType: 'conveyor-belt', position: [-12, 0, 0], length: 6 }
+  const deck = { id: 'deck', componentType: 'conveyor-belt', position: [-6, 0, 0], length: 6, workstationId: 'ws' }
+  assert.deepEqual(connectedPorts(deck, [host, floor, deck]), { in: true, out: false })
+  assert.deepEqual(surfaceTransitions([host, floor, deck])[0], { center: [-9, 0], rotation: 0, fromHeight: 0, toHeight: 0.5, ids: ['floor', 'deck'] })
 })
 
 test('rotating respects the floor', () => {
