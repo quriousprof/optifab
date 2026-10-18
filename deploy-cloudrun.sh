@@ -19,8 +19,7 @@ gcloud run deploy optifab-backend \
   --image "docker.io/${BACKEND_IMAGE}" \
   --platform managed \
   --allow-unauthenticated \
-  --port 8080 \
-  --set-env-vars "OPTIFAB_CORS_ORIGINS=https://optifab.equaleum.com"
+  --port 8080
 
 BACKEND_URL=$(gcloud run services describe optifab-backend \
   --project "${PROJECT}" \
@@ -46,6 +45,17 @@ gcloud run deploy optifab-frontend \
   --port 8080 \
   --set-env-vars "BACKEND_URL=${BACKEND_URL}"
 
-echo "==> Done! Map custom domains:"
-echo "    gcloud run domain-mappings create --service optifab-frontend --domain optifab.equaleum.com --region ${REGION}"
-echo "    gcloud run domain-mappings create --service optifab-backend --domain optifab-api.equaleum.com --region ${REGION}"
+FRONTEND_URL=$(gcloud run services describe optifab-frontend \
+  --project "${PROJECT}" \
+  --region "${REGION}" \
+  --format "value(status.url)")
+
+echo "==> Updating backend CORS with frontend URL"
+gcloud run services update optifab-backend \
+  --project "${PROJECT}" \
+  --region "${REGION}" \
+  --set-env-vars "OPTIFAB_CORS_ORIGINS=${FRONTEND_URL}"
+
+echo "==> Done!"
+echo "    Frontend: ${FRONTEND_URL}"
+echo "    Backend:  ${BACKEND_URL}"
