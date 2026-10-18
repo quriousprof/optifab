@@ -49,7 +49,7 @@ echo "==> Updating backend CORS with frontend URL"
 gcloud run services update optifab-backend \
   --project "${PROJECT}" \
   --region "${REGION}" \
-  --set-env-vars "OPTIFAB_CORS_ORIGINS=${FRONTEND_URL}"
+  --set-env-vars "OPTIFAB_CORS_ORIGINS=[\"${FRONTEND_URL}\"]"
 
 echo "==> Done!"
 echo "    Frontend: ${FRONTEND_URL}"
