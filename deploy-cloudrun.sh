@@ -4,8 +4,9 @@ set -euo pipefail
 PROJECT=${GCP_PROJECT:?Set GCP_PROJECT}
 REGION=${GCP_REGION:-asia-south1}
 
-BACKEND_IMAGE="gcr.io/${PROJECT}/optifab-backend"
-FRONTEND_IMAGE="gcr.io/${PROJECT}/optifab-frontend"
+AR="${REGION}-docker.pkg.dev/${PROJECT}/optifab"
+BACKEND_IMAGE="${AR}/backend"
+FRONTEND_IMAGE="${AR}/frontend"
 
 echo "==> Building images with Cloud Build"
 gcloud builds submit \

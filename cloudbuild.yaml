@@ -6,7 +6,7 @@ steps:
       - -f
       - backend/Dockerfile
       - -t
-      - gcr.io/$PROJECT_ID/optifab-backend
+      - asia-south1-docker.pkg.dev/$PROJECT_ID/optifab/backend
       - .
 
   # Build frontend (context = frontend/)
@@ -16,9 +16,9 @@ steps:
       - --build-arg
       - CADDYFILE=Caddyfile.cloudrun
       - -t
-      - gcr.io/$PROJECT_ID/optifab-frontend
+      - asia-south1-docker.pkg.dev/$PROJECT_ID/optifab/frontend
       - frontend/
 
 images:
-  - gcr.io/$PROJECT_ID/optifab-backend
-  - gcr.io/$PROJECT_ID/optifab-frontend
+  - asia-south1-docker.pkg.dev/$PROJECT_ID/optifab/backend
+  - asia-south1-docker.pkg.dev/$PROJECT_ID/optifab/frontend
