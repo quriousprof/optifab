@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from app.core.schemas import Schedule, ScheduledOperation
 from app.core.scenario import (
-    CUTTING_MACHINES, FAILURE_TIME, FAILED_MACHINE,
+    CUTTING_MACHINES, DEFAULT_FAILED_MACHINE, FAILURE_TIME,
     FORMING_MACHINES, INSPECTION_MACHINES, FixedOperation,
 )
 
@@ -28,11 +28,12 @@ def validate_schedule(
     fixed_ops: list[FixedOperation],
     get_duration: callable,
     is_recovery: bool = False,
+    failed_machine: str = DEFAULT_FAILED_MACHINE,
 ) -> list[str]:
     """Return a list of violation messages. Empty list means the schedule is valid.
 
     Args:
-        is_recovery: If True, enforce post-failure rules (no F1 after t=6, fixed ops preserved).
+        is_recovery: If True, enforce post-failure rules (nothing on failed_machine after t=6, fixed ops preserved).
                      If False, only check structural rules (the baseline is valid pre-failure).
     """
     errors: list[str] = []
@@ -121,11 +122,11 @@ def validate_schedule(
                         f"{op.machineId}[{op.start},{op.end})"
                     )
 
-        # 7. No F1 assignment at or after failure time
+        # 7. No failed-machine assignment at or after failure time
         for op in ops:
-            if op.machineId == FAILED_MACHINE and op.end > FAILURE_TIME:
+            if op.machineId == failed_machine and op.end > FAILURE_TIME:
                 errors.append(
-                    f"{op.operationId}: assigned to {FAILED_MACHINE} "
+                    f"{op.operationId}: assigned to {failed_machine} "
                     f"[{op.start},{op.end}) which extends past failure time {FAILURE_TIME}"
                 )
 

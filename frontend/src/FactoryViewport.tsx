@@ -1,10 +1,11 @@
 import { beltEnds } from './conveyorPath'
-import { useEffect, useMemo, useRef, type ComponentRef } from 'react'
+import { useEffect, useMemo, useRef, type ComponentRef, type ReactNode } from 'react'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { Grid, OrbitControls } from '@react-three/drei'
 import { MOUSE, TOUCH, OrthographicCamera } from 'three'
 import { FLOOR_SIZE, WORKSTATION_HEIGHT, type FactoryComponentType, type FloorPosition, type PlacedMachine } from './factoryComponents'
 import { CornerMesh, MachineMesh, TransitionMesh } from './MachineMesh'
+import type { MachineState } from './api'
 import { connectedPorts, cornerTiles, linkedAssembly, surfaceTransitions, type Laid } from './connections'
 import { SceneInteraction, type PlaceOptions } from './SceneInteraction'
 import { advanceCameraFocus, getMachineFocus, type CameraFocus } from './machineInteraction'
@@ -137,7 +138,7 @@ function StrategyControls({ fitVersion, focusRequest, activeMachines }: {
   )
 }
 
-export function FactoryViewport({ fitVersion, placementType, placementRotation, activeMachines, selectedMachineId, highlightedIds, lockedIds, focusRequest, onPlace, onPlaceRun, onMove, onSettle, onDelete, onSelect, onFocus }: {
+export function FactoryViewport({ fitVersion, placementType, placementRotation, activeMachines, selectedMachineId, highlightedIds, lockedIds, focusRequest, onPlace, onPlaceRun, onMove, onSettle, onDelete, onSelect, onFocus, machineStates, renderDetails }: {
   fitVersion: number
   placementType: FactoryComponentType | null
   placementRotation: number
@@ -153,6 +154,8 @@ export function FactoryViewport({ fitVersion, placementType, placementRotation, 
   onDelete: () => void
   onSelect: (id: string | null, additive?: boolean) => void
   onFocus: (id: string) => void
+  machineStates?: Record<string, MachineState> // backend FactoryState.machineStates, keyed by label
+  renderDetails?: (machine: PlacedMachine) => ReactNode
 }) {
   const transitions = surfaceTransitions(activeMachines)
   const beltNeighbors = useMemo(() => new Map(activeMachines.map((machine) => {
@@ -192,7 +195,7 @@ export function FactoryViewport({ fitVersion, placementType, placementRotation, 
       />
       <FactoryFloor />
       {activeMachines.map((machine) => (
-        <MachineMesh key={machine.id} machineId={machine.id} selected={selectedMachineId === machine.id} highlighted={highlightedIds.has(machine.id)} locked={lockedIds.has(machine.id)} mounted={!!machine.workstationId} transitionIn={transitions.some((joint) => joint.ids[1] === machine.id)} transitionOut={transitions.some((joint) => joint.ids[0] === machine.id)} groupSize={linkedAssembly(machine.id, activeMachines).size} onDelete={onDelete} componentType={machine.componentType} position={[machine.position[0], machine.workstationId ? WORKSTATION_HEIGHT : 0, machine.position[2]]} length={machine.length} breadth={machine.breadth} rotation={machine.rotation} angle={machine.angle} entryAngle={machine.entryAngle} exitAngle={machine.exitAngle} neighbors={beltNeighbors.get(machine.id)} ports={connectedPorts(machine, activeMachines)} />
+        <MachineMesh key={machine.id} machineId={machine.id} selected={selectedMachineId === machine.id} highlighted={highlightedIds.has(machine.id)} locked={lockedIds.has(machine.id)} mounted={!!machine.workstationId} transitionIn={transitions.some((joint) => joint.ids[1] === machine.id)} transitionOut={transitions.some((joint) => joint.ids[0] === machine.id)} groupSize={linkedAssembly(machine.id, activeMachines).size} onDelete={onDelete} componentType={machine.componentType} position={[machine.position[0], machine.workstationId ? WORKSTATION_HEIGHT : 0, machine.position[2]]} length={machine.length} breadth={machine.breadth} rotation={machine.rotation} angle={machine.angle} entryAngle={machine.entryAngle} exitAngle={machine.exitAngle} neighbors={beltNeighbors.get(machine.id)} ports={connectedPorts(machine, activeMachines)} label={machine.label} status={machine.label ? machineStates?.[machine.label]?.status : undefined} details={selectedMachineId === machine.id ? renderDetails?.(machine) : undefined} />
       ))}
       {cornerTiles(activeMachines).map((tile) => (
         <CornerMesh key={tile.ids.join()} center={tile.center} from={tile.from} to={tile.to} highlighted={highlightedIds.has(tile.ids[0]) && highlightedIds.has(tile.ids[1])} elevation={activeMachines.find((machine) => machine.id === tile.ids[0])?.workstationId ? WORKSTATION_HEIGHT : 0} />

@@ -1,4 +1,5 @@
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, type ReactNode } from 'react'
+import type { MachineStatus } from './api'
 import { Edges, Html } from '@react-three/drei'
 import { CatmullRomCurve3, EdgesGeometry, Vector3 } from 'three'
 import { getFactoryComponent, machineDepth, machineWidth, type FactoryComponentType, type FloorPosition, type PlacedMachine } from './factoryComponents'
@@ -6,6 +7,8 @@ import { beltEnds, beltPoint, beltTangent, type BeltPath } from './conveyorPath'
 import { beltCoverage, sweepBelt } from './conveyorGeometry'
 
 const noRaycast = () => {}
+// Floor pad colour per machine state; the label tag repeats the state in text.
+const STATUS_COLOR: Record<MachineStatus, string> = { idle: '#9aa9b3', processing: '#2f9e5f', failed: '#d23b32', blocked: '#e0a019' }
 type Point = [number, number, number]
 
 function BoxPart({ at, size, color, ghost, machineId, metalness = 0.18, emissive }: {
@@ -147,7 +150,7 @@ export function TransitionMesh({ center, rotation, fromHeight, toHeight, highlig
   </group>
 }
 
-export function MachineMesh({ componentType, position, ghost = false, machineId, selected = false, highlighted = false, locked = false, mounted = false, transitionIn = false, transitionOut = false, groupSize = 1, onDelete, length, breadth, rotation = 0, angle, entryAngle, exitAngle, neighbors = [], ports }: {
+export function MachineMesh({ componentType, position, ghost = false, machineId, selected = false, highlighted = false, locked = false, mounted = false, transitionIn = false, transitionOut = false, groupSize = 1, onDelete, length, breadth, rotation = 0, angle, entryAngle, exitAngle, neighbors = [], ports, label, status, details }: {
   componentType: FactoryComponentType
   position: FloorPosition
   ghost?: boolean
@@ -168,6 +171,9 @@ export function MachineMesh({ componentType, position, ghost = false, machineId,
   exitAngle?: number
   neighbors?: PlacedMachine[]
   ports?: { in: boolean; out: boolean }
+  label?: string // backend machine ID, e.g. F1
+  status?: MachineStatus // from FactoryState.machineStates[label]
+  details?: ReactNode // digital-twin controls rendered in the selection card
 }) {
   const component = getFactoryComponent(componentType)
   const [, height] = component.dimensions
@@ -236,6 +242,13 @@ export function MachineMesh({ componentType, position, ghost = false, machineId,
         <boxGeometry args={[0.2, 0.35, 0.58]} />
         <meshStandardMaterial color={ports[side] ? '#2fd16b' : side === 'in' ? '#e8a33d' : '#2d8cff'} />
       </mesh>)}
+    {status && !ghost && <mesh position={[0, 0.03, 0]} raycast={noRaycast}>
+      <boxGeometry args={[width + 0.5, 0.06, depth + 0.5]} />
+      <meshBasicMaterial color={STATUS_COLOR[status]} />
+    </mesh>}
+    {label && !selected && !ghost && <Html position={[0, height + 0.4, 0]} center zIndexRange={[4, 0]} style={{ pointerEvents: 'none' }}>
+      <span className="machine-label" data-status={status}>{label}{status && status !== 'idle' && <small>{status}</small>}</span>
+    </Html>}
     {(selected || highlighted) && !ghost && <>
       {componentType !== 'conveyor-belt' && <mesh position={[0, height / 2, 0]} raycast={noRaycast}>
         <boxGeometry args={[width + 0.3, height + 0.3, depth + 0.3]} />
@@ -248,6 +261,7 @@ export function MachineMesh({ componentType, position, ghost = false, machineId,
             <svg viewBox="0 0 12 12" aria-hidden="true"><path d="m2 2 8 8M10 2l-8 8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></svg>
           </button>}
           <h2>{component.name}</h2>
+          {details}
           <p>{locked ? `${groupSize} ${groupSize === 1 ? 'component' : 'components'} locked. Unlock in the sidebar to edit.` : componentType === 'workstation' ? 'Place machines on this platform. Drag it to move everything mounted on it.' : mounted ? 'Drag to reposition on the workstation. Alt-drag to take it off.' : groupSize > 1 ? `${groupSize} linked components. Drag one to move the assembly.` : componentType === 'raw-material' ? 'Feed stock into a conveyor from the blue output.' : componentType === 'finished-goods' ? 'Connect the orange input to collect finished products.' : 'Orange marks input; blue marks output. Join ends to build a line.'}</p>
         </section>
       </Html>}

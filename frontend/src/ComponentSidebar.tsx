@@ -59,7 +59,7 @@ function LengthButton({ label, symbol, length, onResize, disabled }: { label: st
   )
 }
 
-export function ComponentSidebar({ editorMode, machineCount, selectedConveyor, selectedStorage, selectedCount, selectedGroupSize, selectedLocked, canUngroup, onGroup, onUngroup, onToggleLock, onResize, canResizeConveyor, onResizeStorage, canResizeStorage, canDelete, onDelete, canUndo, onUndo, onSelect, onCancel }: {
+export function ComponentSidebar({ editorMode, machineCount, selectedConveyor, selectedStorage, selectedCount, selectedGroupSize, selectedLocked, canUngroup, onGroup, onUngroup, onToggleLock, onResize, canResizeConveyor, onResizeStorage, canResizeStorage, canDelete, onDelete, canUndo, onUndo, onSelect, onCancel, onLoadPreset }: {
   canDelete: boolean
   onDelete: () => void
   canUndo: boolean
@@ -81,6 +81,7 @@ export function ComponentSidebar({ editorMode, machineCount, selectedConveyor, s
   machineCount: number
   onSelect: (type: FactoryComponentType) => void
   onCancel: () => void
+  onLoadPreset: () => void
 }) {
   const selected = editorMode.mode === 'placement'
     ? FACTORY_COMPONENTS.find((component) => component.type === editorMode.componentType)
@@ -93,6 +94,13 @@ export function ComponentSidebar({ editorMode, machineCount, selectedConveyor, s
     >
       <h2 id="component-palette-title" className="text-base font-semibold tracking-[-0.3px]">Components</h2>
       <p className="mt-1 text-xs leading-5 text-[#4c606e]">Drag onto the floor to build a line. Place machines on workstations to make a shared cell. Orange marks input; blue marks output.</p>
+
+      <div className="mt-3">
+        <button type="button" onClick={onLoadPreset} className="min-h-9 w-full cursor-pointer rounded-md border border-[#b3c0ca] bg-white px-2 text-xs font-semibold hover:bg-[#e7eff6] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#28649b]">
+          Load six-job factory preset
+        </button>
+        <p className="mt-1 text-[11px] leading-4 text-[#4c606e]">Nine machines (C1–C4, F1–F3, I1–I2) joined by conveyors between an input and an output dock. Undo restores your layout.</p>
+      </div>
 
       {selectedCount > 0 && <div className="mt-4 border-t border-[#d4dfe7] pt-4" role="group" aria-label="Selection controls">
         <p className="text-xs font-semibold">{selectedGroupSize} {selectedGroupSize === 1 ? 'component' : 'components'} selected{selectedLocked ? ' · Locked' : ''}</p>

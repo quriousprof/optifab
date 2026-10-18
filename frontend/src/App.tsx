@@ -2,10 +2,14 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { FactoryViewport } from './FactoryViewport'
 import type { PlaceOptions } from './SceneInteraction'
 import { ComponentSidebar } from './ComponentSidebar'
+import { MachineInspector, RecoveryPanel } from './TwinPanel'
+import { useFactory } from './useFactory'
+import { presetLayout } from './presetLayout'
 import { alignMerges, assemblyLocked, linkedAssembly, mergeConveyors, movementAssembly, resizeConveyorLayout, resizeStorage, rotateMachine, translateAssembly, workstationForFootprint, type Laid } from './connections'
-import { FLOOR_SIZE, isResizableAreaType, type EditorMode, type FactoryComponentType, type FloorPosition, type PlacedMachine } from './factoryComponents'
+import { autoLabel, FLOOR_SIZE, isResizableAreaType, relabel, type EditorMode, type FactoryComponentType, type FloorPosition, type PlacedMachine } from './factoryComponents'
 
 export function App() {
+  const factory = useFactory()
   const [fitVersion, setFitVersion] = useState(0)
   const [editorMode, setEditorMode] = useState<EditorMode>({ mode: 'navigate' })
   const [placementRotation, setPlacementRotation] = useState(0)
@@ -24,6 +28,14 @@ export function App() {
     history.current = [...history.current.slice(-99), machinesRef.current]
     setUndoDepth(history.current.length)
   }, [])
+  const loadPreset = useCallback(() => {
+    checkpoint()
+    setActiveMachines(presetLayout())
+    setSelectedMachineIds([])
+    setEditorMode({ mode: 'navigate' })
+    setFocusRequest(null)
+    setFitVersion((version) => version + 1)
+  }, [checkpoint])
   const undo = useCallback(() => {
     const previous = history.current.pop()
     if (!previous) return
@@ -43,7 +55,7 @@ export function App() {
   const placeMachine = useCallback((componentType: FactoryComponentType, position: FloorPosition, options: PlaceOptions = {}) => {
     const machine: PlacedMachine = { id: crypto.randomUUID(), componentType, position, ...options }
     checkpoint()
-    setActiveMachines((machines) => mergeConveyors([...machines, machine]))
+    setActiveMachines((machines) => autoLabel(mergeConveyors([...machines, machine])))
   }, [checkpoint])
   const placeConveyorRun = useCallback((pieces: Laid[]) => {
     if (!pieces.length) return
@@ -183,7 +195,14 @@ export function App() {
         onMove={moveMachine}
         onSettle={settleMachine}
         onDelete={deleteSelected}
+        machineStates={factory.state?.machineStates}
+        renderDetails={(machine) => <MachineInspector machine={machine} factory={factory} onRelabel={(label) => {
+          checkpoint()
+          setActiveMachines((machines) => relabel(machines, machine.id, label))
+        }} />}
       />
+
+      <RecoveryPanel factory={factory} />
 
       <ComponentSidebar
         editorMode={editorMode}
@@ -216,6 +235,7 @@ export function App() {
           setEditorMode({ mode: 'placement', componentType })
         }}
         onCancel={() => setEditorMode({ mode: 'navigate' })}
+        onLoadPreset={loadPreset}
       />
 
       <header className="viewport-header">

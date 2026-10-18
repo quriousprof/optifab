@@ -3,28 +3,14 @@
 from __future__ import annotations
 
 from app.core.schemas import FactoryState, MachineState, Schedule
-from app.core.scenario import load_baseline, load_failure_state, load_scenario
+from app.core.scenario import FAILURE_TIME, compute_failure_state, load_baseline, load_scenario
 
 
 class FactoryService:
     def __init__(self) -> None:
         self._scenario = load_scenario()
         self._baseline = load_baseline()
-        self._failure_state = load_failure_state()
-        self._schedules: dict[str, Schedule] = {
-            self._baseline.scheduleId: self._baseline,
-        }
-        self._state = FactoryState(
-            simulationTime=0,
-            phase="baseline",
-            activeScheduleId="baseline",
-            failedMachineIds=[],
-            blockedJobIds=[],
-            machineStates={
-                m["machineId"]: MachineState(status="idle", currentOperationId=None)
-                for m in self._scenario["machines"]
-            },
-        )
+        self.reset()
 
     @property
     def scenario(self) -> dict:
@@ -40,8 +26,8 @@ class FactoryService:
     def store_schedule(self, schedule: Schedule) -> None:
         self._schedules[schedule.scheduleId] = schedule
 
-    def trigger_failure(self) -> FactoryState:
-        self._state = self._failure_state.model_copy()
+    def trigger_failure(self, machine_id: str) -> FactoryState:
+        self._state = compute_failure_state(self._scenario, self._baseline, machine_id)
         return self._state
 
     def apply_recovery(self, schedule_id: str) -> FactoryState | None:
@@ -49,17 +35,18 @@ class FactoryService:
         if not schedule:
             return None
 
+        failed = self._state.failedMachineIds
         # Build machine states at failure time from the recovery schedule
         machine_states: dict[str, MachineState] = {}
         for m in self._scenario["machines"]:
             mid = m["machineId"]
-            if mid == "F1":
+            if mid in failed:
                 machine_states[mid] = MachineState(status="failed", currentOperationId=None)
                 continue
 
             current_op = None
             for op in schedule.operations:
-                if op.machineId == mid and op.start <= 6 < op.end:
+                if op.machineId == mid and op.start <= FAILURE_TIME < op.end:
                     current_op = op.operationId
                     break
 
@@ -69,16 +56,18 @@ class FactoryService:
             )
 
         self._state = FactoryState(
-            simulationTime=6,
+            simulationTime=FAILURE_TIME,
             phase="recovered",
             activeScheduleId=schedule_id,
-            failedMachineIds=["F1"],
+            failedMachineIds=failed,
             blockedJobIds=[],
             machineStates=machine_states,
         )
         return self._state
 
     def reset(self) -> FactoryState:
+        # Drops recovery schedules too; only the baseline survives a reset.
+        self._schedules: dict[str, Schedule] = {self._baseline.scheduleId: self._baseline}
         self._state = FactoryState(
             simulationTime=0,
             phase="baseline",

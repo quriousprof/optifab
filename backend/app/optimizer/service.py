@@ -58,8 +58,9 @@ def _run_solvers(method: str) -> dict:
     """Run the requested solver(s) synchronously (called from a thread)."""
     scenario = load_scenario()
     baseline = load_baseline()
-    fixed = get_fixed_operations(scenario, baseline)
-    reschedulable = get_operations_to_reschedule(scenario, baseline, fixed)
+    failed_machine = factory_service.state.failedMachineIds[0]
+    fixed = get_fixed_operations(scenario, baseline, failed_machine)
+    reschedulable = get_operations_to_reschedule(scenario, baseline, fixed, failed_machine)
 
     result: dict = {}
 

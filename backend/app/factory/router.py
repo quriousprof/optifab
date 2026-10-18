@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from app.core.scenario import DEFAULT_FAILED_MACHINE, FORMING_MACHINES
 from app.core.schemas import FactoryState, Schedule
 from app.factory.service import factory_service
 
@@ -25,9 +26,17 @@ def get_schedule(schedule_id: str):
     return schedule
 
 
+class TriggerFailureRequest(BaseModel):
+    machineId: str = DEFAULT_FAILED_MACHINE
+
+
 @router.post("/failure/trigger", response_model=FactoryState)
-def trigger_failure():
-    return factory_service.trigger_failure()
+def trigger_failure(req: TriggerFailureRequest = TriggerFailureRequest()):
+    if req.machineId not in FORMING_MACHINES:
+        raise HTTPException(400, f"Only forming machines {FORMING_MACHINES} can fail, got '{req.machineId}'")
+    if factory_service.state.phase != "baseline":
+        raise HTTPException(400, "A failure is already active; reset first")
+    return factory_service.trigger_failure(req.machineId)
 
 
 @router.post("/failure/reset", response_model=FactoryState)

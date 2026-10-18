@@ -29,9 +29,31 @@ export type PlacedMachine = {
   groupId?: string // explicit user grouping, in addition to physical port connections
   locked?: boolean
   workstationId?: string // machine mounted on a workstation platform
+  label?: string // backend machine ID (C1, F2, I1...) this machine stands for
 }
 
 export const WORKSTATION_HEIGHT = 0.5
+
+export const STAGE_PREFIX: Partial<Record<FactoryComponentType, string>> = { 'cutting-machine': 'C', 'forming-machine': 'F', 'inspection-machine': 'I' }
+
+/** Gives each unlabelled stage machine the lowest free ID for its stage (C1, C2...). Existing labels never change. */
+export function autoLabel(machines: PlacedMachine[]): PlacedMachine[] {
+  const taken = new Set(machines.map((machine) => machine.label).filter(Boolean))
+  return machines.map((machine) => {
+    const prefix = STAGE_PREFIX[machine.componentType]
+    if (!prefix || machine.label) return machine
+    let n = 1
+    while (taken.has(`${prefix}${n}`)) n++
+    taken.add(`${prefix}${n}`)
+    return { ...machine, label: `${prefix}${n}` }
+  })
+}
+
+/** Assigns `label` to machine `id`, swapping with whichever machine held it so IDs stay unique. */
+export function relabel(machines: PlacedMachine[], id: string, label: string): PlacedMachine[] {
+  const previous = machines.find((machine) => machine.id === id)?.label
+  return machines.map((machine) => machine.id === id ? { ...machine, label } : machine.label === label ? { ...machine, label: previous } : machine)
+}
 
 export function getFactoryComponent(type: FactoryComponentType): FactoryComponent {
   return FACTORY_COMPONENTS.find((component) => component.type === type)!

@@ -7,18 +7,16 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from app.config import settings
-from app.core.schemas import FactoryState, Schedule
+from app.core.schemas import FactoryState, MachineState, Schedule
 
 STAGES = ("cutting", "forming", "inspection")
 FAILURE_TIME = 6
-FAILED_MACHINE = "F1"
+DEFAULT_FAILED_MACHINE = "F1"
 
 CUTTING_MACHINES = ["C1", "C2", "C3", "C4"]
+# ponytail: only forming machines can fail — two survivors keep 1 qubit/op; cutting/inspection need one-hot QUBO
 FORMING_MACHINES = ["F1", "F2", "F3"]
 INSPECTION_MACHINES = ["I1", "I2"]
-
-# Surviving forming machines after F1 failure
-SURVIVING_FORMING = ["F2", "F3"]
 
 
 def _docs() -> Path:
@@ -34,9 +32,35 @@ def load_baseline() -> Schedule:
     return Schedule(**data)
 
 
-def load_failure_state() -> FactoryState:
-    data = json.loads((_docs() / "failure-state.json").read_text())
-    return FactoryState(**data)
+def compute_failure_state(scenario: dict, baseline: Schedule, failed_machine: str) -> FactoryState:
+    """Factory snapshot at FAILURE_TIME when `failed_machine` goes down (F1 reproduces failure-state.json)."""
+    t = FAILURE_TIME
+    blocked = sorted({
+        op.jobId for op in baseline.operations
+        if op.machineId == failed_machine and op.end > t
+    })
+    states: dict[str, MachineState] = {}
+    for m in scenario["machines"]:
+        mid = m["machineId"]
+        ops = sorted((op for op in baseline.operations if op.machineId == mid), key=lambda o: o.start)
+        running = next((op for op in ops if op.start <= t < op.end), None)
+        upcoming = next((op for op in ops if op.start >= t), None)
+        if mid == failed_machine:
+            states[mid] = MachineState(status="failed", currentOperationId=None)
+        elif running:
+            states[mid] = MachineState(status="processing", currentOperationId=running.operationId)
+        elif upcoming and upcoming.jobId in blocked:
+            states[mid] = MachineState(status="blocked", currentOperationId=None)
+        else:
+            states[mid] = MachineState(status="idle", currentOperationId=None)
+    return FactoryState(
+        simulationTime=t,
+        phase="failed",
+        activeScheduleId=baseline.scheduleId,
+        failedMachineIds=[failed_machine],
+        blockedJobIds=blocked,
+        machineStates=states,
+    )
 
 
 def get_processing_time(scenario: dict, job_id: str, stage: str, machine_id: str) -> int:
@@ -72,7 +96,9 @@ class ReschedulableOperation:
     earliest_start: int  # based on predecessor completion, not machine availability
 
 
-def get_fixed_operations(scenario: dict, baseline: Schedule) -> list[FixedOperation]:
+def get_fixed_operations(
+    scenario: dict, baseline: Schedule, failed_machine: str = DEFAULT_FAILED_MACHINE,
+) -> list[FixedOperation]:
     """Return operations that are completed or running-unaffected at the failure time."""
     fixed: list[FixedOperation] = []
     for op in baseline.operations:
@@ -84,7 +110,7 @@ def get_fixed_operations(scenario: dict, baseline: Schedule) -> list[FixedOperat
                 start=op.start, end=op.end,
             ))
         # Running on an unaffected machine at failure time
-        elif op.start < FAILURE_TIME and op.machineId != FAILED_MACHINE:
+        elif op.start < FAILURE_TIME and op.machineId != failed_machine:
             fixed.append(FixedOperation(
                 job_id=op.jobId, operation_id=op.operationId,
                 stage=op.stage, machine_id=op.machineId,
@@ -95,9 +121,11 @@ def get_fixed_operations(scenario: dict, baseline: Schedule) -> list[FixedOperat
 
 def get_operations_to_reschedule(
     scenario: dict, baseline: Schedule, fixed: list[FixedOperation],
+    failed_machine: str = DEFAULT_FAILED_MACHINE,
 ) -> list[ReschedulableOperation]:
     """Return operations needing (re)scheduling after the failure."""
     fixed_ids = {f.operation_id for f in fixed}
+    surviving_forming = [m for m in FORMING_MACHINES if m != failed_machine]
     ops: list[ReschedulableOperation] = []
 
     for op in baseline.operations:
@@ -105,7 +133,7 @@ def get_operations_to_reschedule(
             continue
 
         if op.stage == "forming":
-            eligible = SURVIVING_FORMING
+            eligible = surviving_forming
             durations = {
                 m: get_processing_time(scenario, op.jobId, "forming", m)
                 for m in eligible

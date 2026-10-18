@@ -108,3 +108,17 @@ h1 { margin: 0; font-size: 15px; font-weight: 500; }
   .header-divider { margin-inline: 2px; }
   .fit-button kbd { display: none; }
 }
+
+/* Digital twin: backend machine labels and inspector */
+.machine-label { display: inline-flex; gap: 5px; align-items: baseline; padding: 2px 7px; font-size: 11px; font-weight: 650; color: #263844; background: #f6f9fbee; border: 1px solid #b3c0ca; border-radius: 5px; white-space: nowrap; }
+.machine-label small { font-size: 9px; font-weight: 600; text-transform: uppercase; }
+.machine-label[data-status='processing'] { border-color: #2f9e5f; }
+.machine-label[data-status='failed'] { color: #fff; background: #d23b32; border-color: #d23b32; }
+.machine-label[data-status='blocked'] { background: #fbe7b8; border-color: #e0a019; }
+.twin-inspector { display: grid; gap: 8px; margin-bottom: 4px; font-size: 11px; pointer-events: auto; }
+.twin-inspector select { font: inherit; }
+.twin-inspector dl { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; margin: 0; }
+.twin-inspector dt { color: #4c606e; }
+.twin-inspector dd { margin: 0; font-weight: 600; }
+.twin-inspector dd[data-status='failed'] { color: #b3362f; }
+.twin-inspector dd[data-status='blocked'] { color: #9a6a00; }
