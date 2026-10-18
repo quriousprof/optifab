@@ -1,0 +1,1 @@
+{"root":["./src/app.tsx","./src/componentsidebar.tsx","./src/factoryviewport.tsx","./src/machinemesh.tsx","./src/sceneinteraction.tsx","./src/connections.ts","./src/conveyorgeometry.ts","./src/conveyorpath.ts","./src/factorycomponents.ts","./src/machineinteraction.ts","./src/main.tsx","./src/placement.ts","./vite.config.ts"],"version":"5.9.3"}

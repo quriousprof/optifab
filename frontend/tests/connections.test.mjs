@@ -1,10 +1,78 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { Raycaster, Vector3 } from 'three'
-import { assemblyLocked, connectedPorts, conveyorJunctions, cornerTiles, linkedAssembly, mergeConveyors, conveyorRun, layConveyor, layConveyorRun, layDirectionalConveyorRun, movementAssembly, resizeConveyor, resizeConveyorLayout, resizeStorage, resolvePlacementTarget, rotateMachine, snapToConnections, surfaceTransitions, translateAssembly, workstationForFootprint } from '../src/connections.ts'
+import { beltEnds, beltPoint, beltTangent, closestBeltPoint, tangentAngle } from '../src/conveyorPath.ts'
+import { alignMerges, assemblyLocked, connectedPorts, conveyorJunctions, cornerTiles, linkedAssembly, mergeConveyors, conveyorRun, layConveyor, layConveyorRun, layDirectionalConveyorRun, movementAssembly, resizeConveyor, resizeConveyorLayout, resizeStorage, resolvePlacementTarget, rotateMachine, snapToConnections, surfaceTransitions, translateAssembly, workstationForFootprint } from '../src/connections.ts'
 
 const belt = { id: 'b', componentType: 'conveyor-belt', position: [0, 0, 0], length: 6 } // ports at x=-3 (in) / x=3 (out)
 const cnc = { id: 'c', componentType: 'cutting-machine', position: [6, 0, 0] } // width 6: in-port at x=3
+
+test('three incoming belts share one exact output merge and can be extended downstream', () => {
+  const trunk = { ...belt, id: 'center', length: 24, position: [0, 0, 0], angle: 0 }
+  const machines = [trunk]
+  const outlet = beltEnds(trunk).end
+  for (const [index, origin] of [[-12, -12], [-12, 12]].entries()) {
+    const piece = layDirectionalConveyorRun(origin, [outlet[0] - 0.5, outlet[1] + 0.3], machines, 0)[0]
+    const incoming = { id: `incoming-${index}`, componentType: 'conveyor-belt', ...piece }
+    const end = beltEnds(incoming).end
+    assert.ok(Math.hypot(end[0] - outlet[0], end[1] - outlet[1]) < 1e-8)
+    assert.ok(beltTangent(incoming, 1)[0] > 0.999999)
+    machines.push(incoming)
+  }
+  assert.equal(linkedAssembly('center', machines).size, 3)
+  const extension = { id: 'downstream', componentType: 'conveyor-belt', ...layDirectionalConveyorRun(outlet, [30, 0], machines, 0)[0] }
+  machines.push(extension)
+  assert.equal(linkedAssembly('downstream', machines).size, 4)
+  assert.equal(connectedPorts(extension, machines).in, true)
+  const moved = translateAssembly(machines, linkedAssembly('center', machines), 'center', [0, 0, 3])
+  assert.ok(moved)
+  assert.equal(linkedAssembly('downstream', moved).size, 4)
+})
+
+test('converging on a workstation retains the shared arrival tangent', () => {
+  const host = { id: 'deck', componentType: 'workstation', position: [0, 0, 0], length: 40, breadth: 30 }
+  const trunk = { ...belt, id: 'center', length: 20, position: [0, 0, 0], angle: 0, workstationId: 'deck' }
+  const piece = layDirectionalConveyorRun([-10, -10], [9.7, 0.2], [host, trunk], 0, 'deck')[0]
+  const incoming = { id: 'incoming', componentType: 'conveyor-belt', ...piece }
+  assert.ok(Math.abs(piece.exitAngle) < 1e-8)
+  assert.equal(piece.workstationId, 'deck')
+  assert.equal(linkedAssembly('center', [host, trunk, incoming]).size, 2)
+})
+
+test('endpoint sockets win over nearby interiors and support three seamless fan branches', () => {
+  const trunk = { ...belt, length: 20, position: [-10, 0, 0], angle: 0 }
+  const machines = [trunk]
+  for (const [index, target] of [[20, -12], [24, 0], [20, 12]].entries()) {
+    const piece = layDirectionalConveyorRun([-0.8, 0.3], target, machines, 0)[0]
+    const branch = { id: `fan-${index}`, componentType: 'conveyor-belt', ...piece }
+    assert.ok(Math.hypot(...beltEnds(branch).start) < 1e-8)
+    assert.ok(beltTangent(branch, 0)[0] > 0.999999)
+    machines.push(branch)
+  }
+  assert.equal(linkedAssembly(trunk.id, machines).size, 4)
+})
+
+test('a continuation shares the exact curved endpoint and tangent', () => {
+  const first = { id: 'curve', componentType: 'conveyor-belt', position: [0, 0, 0], length: 18, angle: -0.5, entryAngle: 0, exitAngle: -0.8 }
+  const endpoint = beltEnds(first).end
+  const laid = layDirectionalConveyorRun([endpoint[0] - 0.5, endpoint[1] - 0.2], [25, 22], [first], 0)[0]
+  const next = { id: 'next', componentType: 'conveyor-belt', ...laid }
+  assert.ok(Math.hypot(beltEnds(next).start[0] - endpoint[0], beltEnds(next).start[1] - endpoint[1]) < 1e-8)
+  const a = beltTangent(first, 1), b = beltTangent(next, 0)
+  assert.ok(Math.hypot(a[0] - b[0], a[1] - b[1]) < 1e-8)
+  assert.equal(connectedPorts(next, [first, next]).in, true)
+})
+
+test('finishing near an input snaps the complete endpoint and arrival tangent', () => {
+  const destination = { ...belt, position: [12, 0, 7], length: 10, angle: -0.3, entryAngle: -0.6 }
+  const input = beltEnds(destination).start
+  const feed = { id: 'feed', componentType: 'conveyor-belt', ...layDirectionalConveyorRun([-12, -5], [input[0] + 0.7, input[1] - 0.4], [destination], 0)[0] }
+  const end = beltEnds(feed).end
+  assert.ok(Math.hypot(end[0] - input[0], end[1] - input[1]) < 1e-8)
+  const incoming = beltTangent(feed, 1), outgoing = beltTangent(destination, 0)
+  assert.ok(Math.hypot(incoming[0] - outgoing[0], incoming[1] - outgoing[1]) < 1e-8)
+  assert.equal(connectedPorts(feed, [feed, destination]).out, true)
+})
 
 test('free-angle belts fan from the middle of one trunk and stay linked', () => {
   const trunk = { ...belt, length: 12 }
@@ -12,17 +80,38 @@ test('free-angle belts fan from the middle of one trunk and stay linked', () => 
   const b = { id: 'fan-b', componentType: 'conveyor-belt', ...layDirectionalConveyorRun([2, 0], [7, -5], [trunk, a], 0)[0] }
   const machines = [trunk, a, b]
   assert.ok(Math.abs(a.angle + Math.PI / 4) < 1e-6)
+  assert.ok(Math.abs(a.entryAngle) < 1e-6)
+  assert.deepEqual(beltEnds(a).start.map((value) => Math.round(value) || 0), [0, 0])
+  const [firstDx, firstDz] = beltTangent(a, 0)
+  assert.ok(firstDx > 0.99 && Math.abs(firstDz) < 0.01)
+  assert.ok(Math.abs(beltPoint(a, 0.5)[1] - 3) > 0.2) // the belt actually bends; it is not a straight chord
   assert.deepEqual(connectedPorts(trunk, machines), { in: false, out: true })
   assert.deepEqual(connectedPorts(a, machines), { in: true, out: false })
   assert.deepEqual([...conveyorRun('b', machines)].sort(), ['a', 'b', 'fan-b'])
   assert.deepEqual(conveyorJunctions(machines).map((joint) => joint.center.map((value) => Math.round(value * 1000) / 1000 || 0)), [[0, 0], [2, 0]])
   assert.equal(linkedAssembly('fan-b', machines).size, 3)
+  const moved = translateAssembly(machines, linkedAssembly('fan-b', machines), 'a', [a.position[0] + 2, 0, a.position[2] + 3])
+  assert.ok(moved)
+  assert.equal(linkedAssembly('fan-b', moved).size, 3)
+})
+
+test('a new fan can branch from the curved portion of another belt', () => {
+  const trunk = { ...belt, length: 12 }
+  const first = { id: 'first', componentType: 'conveyor-belt', ...layDirectionalConveyorRun([0, 0], [6, 6], [trunk], 0)[0] }
+  const origin = beltPoint(first, 0.6)
+  const second = { id: 'second', componentType: 'conveyor-belt', ...layDirectionalConveyorRun(origin, [11, 8], [trunk, first], 0)[0] }
+  const nearest = closestBeltPoint(first, beltEnds(second).start)
+  assert.ok(nearest.distance < 0.02)
+  assert.equal(connectedPorts(second, [trunk, first, second]).in, true)
+  assert.ok(second.entryAngle !== undefined)
 })
 
 test('a diagonal feed can converge onto a belt spine', () => {
   const trunk = { ...belt, length: 12 }
   const feed = { id: 'feed', componentType: 'conveyor-belt', ...layDirectionalConveyorRun([0, 8], [1, 0.4], [trunk], 0)[0] }
   assert.deepEqual(connectedPorts(feed, [trunk, feed]), { in: false, out: true })
+  assert.ok(Math.abs(feed.exitAngle) < 1e-6)
+  assert.ok(beltTangent(feed, 1)[0] > 0.99)
   assert.deepEqual(connectedPorts(trunk, [trunk, feed]), { in: true, out: false })
   assert.equal(conveyorJunctions([trunk, feed]).length, 1)
 })
@@ -266,4 +355,19 @@ test('end-to-end conveyors on one line fuse into a single belt', () => {
 
 test('laying from an output turns a corner when dragged sideways', () => {
   assert.deepEqual(layConveyor([3, 0], [4, 8], [belt], 0), { position: [4, 0, 4.5], length: 7, rotation: 3 })
+})
+
+test('converging branches arrive tangent to the trunk leaving the merge node', () => {
+  const belt = (id, from, to, extra = {}) => ({ id, componentType: 'conveyor-belt', position: [(from[0] + to[0]) / 2, 0, (from[1] + to[1]) / 2],
+    length: Math.hypot(to[0] - from[0], to[1] - from[1]), rotation: 0, angle: Math.atan2(-(to[1] - from[1]), to[0] - from[0]), ...extra })
+  const machines = alignMerges([
+    belt('upper', [0, -6], [10, 0], { exitAngle: 0.3 }),
+    belt('lower', [0, 6], [10, 0], { exitAngle: -1.2 }),
+    belt('trunk', [10, 0], [20, 0], { entryAngle: 0.5 }),
+  ])
+  const trunk = machines.find((m) => m.id === 'trunk')
+  assert.equal(trunk.entryAngle, undefined)
+  for (const id of ['upper', 'lower']) assert.ok(Math.abs(tangentAngle(machines.find((m) => m.id === id), 1) - tangentAngle(trunk, 0)) < 1e-9)
+  const chain = [belt('a', [0, 0], [10, 0]), belt('b', [10, 0], [20, 5], { entryAngle: 0 })]
+  assert.equal(alignMerges(chain), chain)
 })

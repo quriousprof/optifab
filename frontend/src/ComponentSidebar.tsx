@@ -192,7 +192,7 @@ export function ComponentSidebar({ editorMode, machineCount, selectedConveyor, s
             <>
               <p className="font-semibold text-[#28649b]">Placement mode</p>
               <p>{selected.name} selected.</p>
-              <p className="mt-1">Move over the floor to preview. Click to place and press R to rotate. For conveyors, drag in any direction. Start on a belt to branch; finish on another belt to merge. Drag across a workstation edge to continue onto the floor.</p>
+              <p className="mt-1">Move over the floor to preview. Click to place and press R to rotate. For conveyors, drag in any direction. Drag from a blue endpoint dot to extend a belt. Repeat from that same dot to fan out. Finish at an amber input dot to join another belt. Drag across a workstation edge to continue onto the floor.</p>
             </>
           ) : <p>Select a component to enter placement mode.</p>}
           <p className="mt-2">{machineCount} {machineCount === 1 ? 'component' : 'components'} placed</p>

@@ -1,6 +1,7 @@
 import { DIRECTIONS, WORKSTATION_HEIGHT, fitsFloor, footprint, machineFootprint, isResizableAreaType, machineDepth, machineWidth, type FactoryComponentType, type FloorPosition, type PlacedMachine } from './factoryComponents.ts'
 import { floorPoint, getSnappedFloorPosition } from './placement.ts'
 import { Plane, Vector3, type Raycaster } from 'three'
+import { beltEnds, beltPoint, closestBeltPoint, tangentAngle } from './conveyorPath.ts'
 
 // Lock and key: a machine's flow end is an "out" key and its opposite end an "in" lock.
 // Only out meets in, and the two may not face each other, so material flows one way along a line.
@@ -10,7 +11,7 @@ export const MAX_LENGTH = 100
 export const MAX_STORAGE_SIZE = 40
 const BEND = 1 // half a conveyor's width: a turn happens inside one corner tile this far from each belt end
 
-type Machine = Pick<PlacedMachine, 'componentType' | 'position' | 'length' | 'breadth' | 'rotation' | 'angle' | 'workstationId'>
+type Machine = Pick<PlacedMachine, 'componentType' | 'position' | 'length' | 'breadth' | 'rotation' | 'angle' | 'entryAngle' | 'exitAngle' | 'workstationId'>
 type Point = [number, number]
 
 const dir = (m: Pick<Machine, 'rotation'>) => DIRECTIONS[(m.rotation ?? 0) % 4]
@@ -56,6 +57,10 @@ function hostedPortAtEdge(hosted: Machine, side: 'in' | 'out', machines: PlacedM
 }
 
 function ports(m: Machine): { in: Point; out: Point } {
+  if (m.componentType === 'conveyor-belt') {
+    const { start, end } = beltEnds(m)
+    return { in: start, out: end }
+  }
   const [dx, dz] = direction(m)
   const half = machineWidth(m.componentType, m.length) / 2
   return { in: [m.position[0] - dx * half, m.position[2] - dz * half], out: [m.position[0] + dx * half, m.position[2] + dz * half] }
@@ -65,17 +70,18 @@ const same = (a: Point, b: Point) => Math.hypot(a[0] - b[0], a[1] - b[1]) < 1e-4
 
 function onBelt(point: Point, belt: Machine): boolean {
   if (belt.componentType !== 'conveyor-belt') return false
-  const [dx, dz] = direction(belt)
-  const start = ports(belt).in
-  const along = (point[0] - start[0]) * dx + (point[1] - start[1]) * dz
-  const off = (point[0] - start[0]) * dz - (point[1] - start[1]) * dx
-  return along > 0.05 && along < machineWidth('conveyor-belt', belt.length) - 0.05 && Math.abs(off) < 0.08
+  const nearest = closestBeltPoint(belt, point)
+  const margin = 0.05 / machineWidth('conveyor-belt', belt.length)
+  return nearest.t > margin && nearest.t < 1 - margin && nearest.distance < 0.08
 }
 
 /** A diverter leaves a belt's spine; a merge feeds another belt's spine. */
 function feeds(a: Machine, b: Machine, machines: PlacedMachine[]): boolean {
   if (mated(a, b, machines)) return true
   if (a.workstationId !== b.workstationId) return false
+  // Incoming branches may share an outlet before a downstream trunk is drawn.
+  if (a.componentType === 'conveyor-belt' && b.componentType === 'conveyor-belt' && same(ports(a).out, ports(b).out) &&
+    Math.cos(tangentAngle(a, 1) - tangentAngle(b, 1)) > 0.95) return true
   if (a.componentType === 'conveyor-belt' && onBelt(ports(b).in, a)) return true
   return b.componentType === 'conveyor-belt' && onBelt(ports(a).out, b)
 }
@@ -94,7 +100,7 @@ export function conveyorJunctions(machines: PlacedMachine[]) {
     let joint = junctions.find((candidate) => candidate.workstationId === a.workstationId && same(candidate.center, point))
     if (!joint) {
       const spine = mergesIntoB && !branchesFromA ? b : a
-      joint = { center: point, angle: spine.angle ?? (spine.rotation ?? 0) * Math.PI / 2, workstationId: a.workstationId, ids: [] }
+      joint = { center: point, angle: tangentAngle(spine, closestBeltPoint(spine, point).t), workstationId: a.workstationId, ids: [] }
       junctions.push(joint)
     }
     if (!joint.ids.includes(a.id)) joint.ids.push(a.id)
@@ -227,6 +233,22 @@ export function mergeConveyors(machines: PlacedMachine[], preferId?: string): Pl
   return machines
 }
 
+/** Mirror of a split: belts converging on one node arrive tangent to the trunk that leaves it. */
+export function alignMerges(machines: PlacedMachine[]): PlacedMachine[] {
+  const belts = machines.filter((m) => m.componentType === 'conveyor-belt')
+  const updates = new Map<string, PlacedMachine>()
+  for (const trunk of belts) {
+    const node = ports(trunk).in
+    const incoming = belts.filter((m) => m !== trunk && m.workstationId === trunk.workstationId && same(ports(m).out, node))
+    if (incoming.length < 2) continue // a plain chain keeps the downstream belt's inherited entry tangent
+    const { entryAngle: _, ...straight } = trunk
+    const angle = tangentAngle(straight, 0)
+    updates.set(trunk.id, straight)
+    for (const m of incoming) updates.set(m.id, { ...m, exitAngle: angle })
+  }
+  return updates.size ? machines.map((m) => updates.get(m.id) ?? m) : machines
+}
+
 /** Pull a candidate position onto the nearest compatible port within SNAP_DISTANCE. */
 export function snapToConnections(type: FactoryComponentType, length: number | undefined, rotation: number, position: FloorPosition, others: Machine[]): FloorPosition {
   const [dx, dz] = DIRECTIONS[rotation % 4]
@@ -235,14 +257,14 @@ export function snapToConnections(type: FactoryComponentType, length: number | u
   let bestDistance = SNAP_DISTANCE
   const me = { rotation }
   for (const other of others) {
-    const before = other.componentType === 'finished-goods' || type === 'raw-material' ? null : link(other, me) // other continues into us
+    const before = other.componentType === 'finished-goods' || type === 'raw-material' ? null : other.angle === undefined ? link(other, me) : [0, 0] as Point // other continues into us
     if (before) {
       const out = ports(other).out
       const center = [out[0] + before[0] + dx * half, out[1] + before[1] + dz * half]
       const d = Math.hypot(position[0] - center[0], position[2] - center[1])
       if (d < bestDistance) { bestDistance = d; best = [center[0], 0, center[1]] }
     }
-    const after = type === 'finished-goods' || other.componentType === 'raw-material' ? null : link(me, other) // we continue into other
+    const after = type === 'finished-goods' || other.componentType === 'raw-material' ? null : other.angle === undefined ? link(me, other) : [0, 0] as Point // we continue into other
     if (after) {
       const inn = ports(other).in
       const center = [inn[0] - after[0] - dx * half, inn[1] - after[1] - dz * half]
@@ -292,11 +314,11 @@ export function workstationForFootprint(type: FactoryComponentType, length: numb
 function workstationContains(machine: Machine, machines: PlacedMachine[]): string | undefined {
   if (machine.componentType === 'workstation') return undefined
   if (machine.componentType === 'conveyor-belt') {
-    const ends = ports(machine)
     return machines.find((host) => {
       if (host.componentType !== 'workstation') return false
       const [width, depth] = footprint('workstation', host.length, host.rotation ?? 0, host.breadth)
-      return [ends.in, ends.out].every(([x, z]) => Math.abs(x - host.position[0]) <= width / 2 + 1e-4 && Math.abs(z - host.position[2]) <= depth / 2 + 1e-4)
+      return Array.from({ length: 13 }, (_, index) => beltPoint(machine, index / 12)).every(([x, z]) =>
+        Math.abs(x - host.position[0]) <= width / 2 + 1e-4 && Math.abs(z - host.position[2]) <= depth / 2 + 1e-4)
     })?.id
   }
   const [itemWidth, itemDepth] = machineFootprint(machine)
@@ -327,43 +349,76 @@ export function resolvePlacementTarget(raycaster: Raycaster, type: FactoryCompon
   return position ? { position } : null
 }
 
-export type Laid = { position: FloorPosition; length: number; rotation: number; angle?: number; workstationId?: string }
+export type Laid = { position: FloorPosition; length: number; rotation: number; angle?: number; entryAngle?: number; exitAngle?: number; workstationId?: string }
 
 const halfGrid = (value: number) => Math.round(value * 2) / 2
 
-/** Snap a new belt's start to an output or to any point along an existing belt. */
-export function conveyorStart(raw: Point, machines: PlacedMachine[], workstationId?: string): Point {
-  let best: Point = raw
-  let distance = 1.55
+/** End sockets win over nearby belt interiors, so repeated drags share one exact node. */
+export function conveyorSocket(raw: Point, machines: PlacedMachine[], side: 'in' | 'out', workstationId?: string): { point: Point; machineId: string; angle: number } | null {
+  let best: ReturnType<typeof conveyorSocket> = null
+  let distance = SNAP_DISTANCE
   for (const m of machines) {
-    if ((m.workstationId !== workstationId && !(workstationId === undefined && m.workstationId && hostedPortAtEdge(m, 'out', machines))) || m.componentType === 'workstation' || m.componentType === 'finished-goods') continue
-    const output = ports(m).out
-    const toOutput = Math.hypot(output[0] - raw[0], output[1] - raw[1])
-    if (toOutput < distance) { best = output; distance = toOutput }
-    if (m.componentType !== 'conveyor-belt' || m.workstationId !== workstationId) continue
-    const [dx, dz] = direction(m)
-    const start = ports(m).in
-    const along = Math.max(0, Math.min(machineWidth('conveyor-belt', m.length), halfGrid((raw[0] - start[0]) * dx + (raw[1] - start[1]) * dz)))
-    const point: Point = [start[0] + dx * along, start[1] + dz * along]
+    if (m.componentType === 'workstation' || (side === 'out' && m.componentType === 'finished-goods') || (side === 'in' && m.componentType === 'raw-material')) continue
+    if (m.workstationId !== workstationId && !(workstationId === undefined && m.workstationId && hostedPortAtEdge(m, side, machines))) continue
+    const point = ports(m)[side]
     const d = Math.hypot(point[0] - raw[0], point[1] - raw[1])
-    if (d < distance) { best = point; distance = d }
+    if (d < distance) {
+      distance = d
+      best = { point, machineId: m.id, angle: m.componentType === 'conveyor-belt' ? tangentAngle(m, side === 'out' ? 1 : 0) : (m.rotation ?? 0) * Math.PI / 2 }
+    }
   }
   return best
 }
 
+export function conveyorStart(raw: Point, machines: PlacedMachine[], workstationId?: string): Point {
+  const socket = conveyorSocket(raw, machines, 'out', workstationId)
+  if (socket) return socket.point
+  let best: Point = raw
+  let distance = 1.3
+  for (const m of machines) {
+    if (m.componentType !== 'conveyor-belt' || m.workstationId !== workstationId) continue
+    const nearest = closestBeltPoint(m, raw)
+    if (nearest.distance < distance) { best = nearest.point; distance = nearest.distance }
+  }
+  return best
+}
+
+function destinationSocket(raw: Point, source: Point, machines: PlacedMachine[], workstationId?: string) {
+  const candidates = machines.filter((m) => Math.hypot(ports(m).in[0] - source[0], ports(m).in[1] - source[1]) >= MIN_LENGTH)
+  const input = conveyorSocket(raw, candidates, 'in', workstationId)
+  const output = conveyorSocket(raw, candidates.filter((m) => m.componentType === 'conveyor-belt' &&
+    Math.hypot(ports(m).out[0] - source[0], ports(m).out[1] - source[1]) >= MIN_LENGTH), 'out', workstationId)
+  if (!input) return output
+  if (!output) return input
+  return Math.hypot(raw[0] - output.point[0], raw[1] - output.point[1]) < Math.hypot(raw[0] - input.point[0], raw[1] - input.point[1]) ? output : input
+}
+
 function conveyorEnd(raw: Point, source: Point, machines: PlacedMachine[], workstationId?: string): Point {
+  const socket = destinationSocket(raw, source, machines, workstationId)
+  if (socket) return socket.point
   let best: Point = [halfGrid(raw[0]), halfGrid(raw[1])]
   let distance = 1.15
   for (const m of machines) {
     if (m.workstationId !== workstationId || m.componentType !== 'conveyor-belt') continue
-    const [dx, dz] = direction(m)
-    const start = ports(m).in
-    const along = Math.max(0, Math.min(machineWidth('conveyor-belt', m.length), (raw[0] - start[0]) * dx + (raw[1] - start[1]) * dz))
-    const point: Point = [start[0] + dx * along, start[1] + dz * along]
-    const d = Math.hypot(point[0] - raw[0], point[1] - raw[1])
-    if (d < distance && Math.hypot(point[0] - source[0], point[1] - source[1]) >= MIN_LENGTH) { best = point; distance = d }
+    const nearest = closestBeltPoint(m, raw)
+    if (nearest.distance < distance && Math.hypot(nearest.point[0] - source[0], nearest.point[1] - source[1]) >= MIN_LENGTH) {
+      best = nearest.point; distance = nearest.distance
+    }
   }
   return best
+}
+
+function anchorTangent(point: Point, machines: PlacedMachine[], workstationId: string | undefined, side: 'in' | 'out'): number | undefined {
+  for (const m of machines) {
+    if (m.workstationId !== workstationId || m.componentType !== 'conveyor-belt') continue
+    const nearest = closestBeltPoint(m, point)
+    if (nearest.distance < 0.08) return tangentAngle(m, nearest.t)
+  }
+  for (const m of machines) {
+    if (m.workstationId !== workstationId || m.componentType === 'workstation') continue
+    if (same(ports(m)[side], point)) return m.angle ?? (m.rotation ?? 0) * Math.PI / 2
+  }
+  return undefined
 }
 
 /** Draw at the cursor's actual heading, with a half-unit endpoint grid for stable preview. */
@@ -375,19 +430,18 @@ export function layDirectionalConveyorRun(start: Point, rawCursor: Point, machin
   if (reach < 0.5) { [dx, dz] = [...DIRECTIONS[idleRotation % 4]]; reach = machineWidth('conveyor-belt') }
   const ux = dx / (Math.hypot(dx, dz) || 1), uz = dz / (Math.hypot(dx, dz) || 1)
   const angle = Math.atan2(-uz, ux)
-  let length = Math.min(MAX_LENGTH, Math.max(MIN_LENGTH, reach))
-  // Let a fan join an existing input exactly, even when the endpoint falls between grid lines.
-  for (const m of machines) {
-    if (m.workstationId !== workstationId || m.componentType === 'raw-material' || m.componentType === 'workstation') continue
-    const pin = ports(m).in
-    const along = (pin[0] - source[0]) * ux + (pin[1] - source[1]) * uz
-    const off = Math.abs((pin[0] - source[0]) * uz - (pin[1] - source[1]) * ux)
-    if (off < 0.3 && along >= MIN_LENGTH && Math.abs(along - length) < SNAP_DISTANCE) length = along
-  }
-  const make = (from: number, extent: number, host?: string): Laid => ({ position: [source[0] + ux * (from + extent / 2), 0, source[1] + uz * (from + extent / 2)], length: extent, rotation: idleRotation, angle, ...(host ? { workstationId: host } : {}) })
+  const entryAngle = conveyorSocket(source, machines, 'out', workstationId)?.angle ?? anchorTangent(source, machines, workstationId, 'out')
+  const exitAngle = destinationSocket(cursor, source, machines, workstationId)?.angle ?? anchorTangent(cursor, machines, workstationId, 'in')
+  const length = Math.min(MAX_LENGTH, Math.max(MIN_LENGTH, reach))
+  const make = (from: number, extent: number, host?: string, entry?: number, exit?: number): Laid => ({
+    position: [source[0] + ux * (from + extent / 2), 0, source[1] + uz * (from + extent / 2)],
+    length: extent, rotation: idleRotation, angle,
+    ...(entry === undefined ? {} : { entryAngle: entry }), ...(exit === undefined ? {} : { exitAngle: exit }),
+    ...(host ? { workstationId: host } : {}),
+  })
   if (!workstationId) {
-    const piece = make(0, length)
-    const [w, d] = machineFootprint({ componentType: 'conveyor-belt', length, angle })
+    const piece = make(0, length, undefined, entryAngle, exitAngle)
+    const [w, d] = machineFootprint({ componentType: 'conveyor-belt', ...piece })
     return fitsFloor(piece.position[0], piece.position[2], w, d) ? [piece] : null
   }
   const host = machines.find((m) => m.id === workstationId && m.componentType === 'workstation')
@@ -399,12 +453,12 @@ export function layDirectionalConveyorRun(start: Point, rawCursor: Point, machin
   const deckLength = Math.min(length, edge)
   const pieces: Laid[] = []
   if (deckLength > 0.1) {
-    const piece = make(0, deckLength, workstationId)
+    const piece = make(0, deckLength, workstationId, entryAngle, deckLength === length ? exitAngle : undefined)
     pieces.push(piece)
   }
   const floorLength = length - deckLength
   if (floorLength >= MIN_LENGTH) {
-    const piece = make(deckLength, floorLength)
+    const piece = make(deckLength, floorLength, undefined, undefined, exitAngle)
     const [fw, fd] = machineFootprint({ componentType: 'conveyor-belt', ...piece })
     if (!fitsFloor(piece.position[0], piece.position[2], fw, fd)) return null
     pieces.push(piece)
@@ -482,8 +536,11 @@ export function layConveyorRun(start: Point, cursor: Point, machines: PlacedMach
 export function rotateMachine(m: PlacedMachine): PlacedMachine {
   if (m.componentType === 'conveyor-belt' && m.angle !== undefined) {
     const angle = m.angle + Math.PI / 2
-    const [width, depth] = machineFootprint({ ...m, angle })
-    return fitsFloor(m.position[0], m.position[2], width, depth) ? { ...m, angle } : m
+    const turned = { ...m, angle,
+      ...(m.entryAngle === undefined ? {} : { entryAngle: m.entryAngle + Math.PI / 2 }),
+      ...(m.exitAngle === undefined ? {} : { exitAngle: m.exitAngle + Math.PI / 2 }) }
+    const [width, depth] = machineFootprint(turned)
+    return fitsFloor(m.position[0], m.position[2], width, depth) ? turned : m
   }
   const rotation = ((m.rotation ?? 0) + 1) % 4
   return fits(m.componentType, m.length, rotation, m.position, m.breadth) ? { ...m, rotation } : m

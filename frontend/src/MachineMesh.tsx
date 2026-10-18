@@ -1,6 +1,9 @@
+import { useEffect, useMemo } from 'react'
 import { Edges, Html } from '@react-three/drei'
-import { CatmullRomCurve3, Vector3 } from 'three'
-import { getFactoryComponent, machineDepth, machineWidth, type FactoryComponentType, type FloorPosition } from './factoryComponents'
+import { CatmullRomCurve3, EdgesGeometry, Vector3 } from 'three'
+import { getFactoryComponent, machineDepth, machineWidth, type FactoryComponentType, type FloorPosition, type PlacedMachine } from './factoryComponents'
+import { beltEnds, beltPoint, beltTangent, type BeltPath } from './conveyorPath'
+import { beltCoverage, sweepBelt } from './conveyorGeometry'
 
 const noRaycast = () => {}
 type Point = [number, number, number]
@@ -22,6 +25,64 @@ function CylinderPart({ at, radius, height, color, ghost, machineId, rotation }:
     <cylinderGeometry args={[radius, radius, height, 24]} />
     <meshStandardMaterial color={color} roughness={0.48} metalness={0.3} transparent={ghost} opacity={ghost ? 0.35 : 1} depthWrite={!ghost} />
   </mesh>
+}
+
+function CurvedConveyor({ length, angle, entryAngle, exitAngle, color, ghost, machineId, transitionIn, transitionOut, position, neighbors, highlighted }: {
+  highlighted: boolean; length: number; angle: number; entryAngle?: number; exitAngle?: number; color: string; ghost: boolean; machineId?: string; transitionIn: boolean; transitionOut: boolean; position: FloorPosition; neighbors: PlacedMachine[]
+}) {
+  const path: BeltPath = { position: [0, 0, 0], length, angle: 0,
+    entryAngle: entryAngle === undefined ? undefined : entryAngle - angle,
+    exitAngle: exitAngle === undefined ? undefined : exitAngle - angle }
+  const from = transitionIn ? Math.min(0.4, 1 / length) : 0
+  const to = transitionOut ? Math.max(0.6, 1 - 1 / length) : 1
+  const worldPath: BeltPath = { position, length, angle, entryAngle, exitAngle }
+  const coverage = useMemo(() => {
+    const ends = beltEnds(worldPath)
+    return neighbors.map((peer) => {
+      const other = beltEnds(peer)
+      const sharedMouth = Math.hypot(ends.start[0] - other.start[0], ends.start[1] - other.start[1]) < 0.01 ||
+        Math.hypot(ends.end[0] - other.end[0], ends.end[1] - other.end[1]) < 0.01
+      return { rail: beltCoverage(peer, 1.1), slat: sharedMouth ? beltCoverage(peer, 2.0) : () => false }
+    })
+  }, [neighbors, length, angle, entryAngle, exitAngle, position[0], position[2]])
+  const railVisible = (side: number) => (t: number) => {
+    const [x, z] = beltPoint(worldPath, t)
+    const [dx, dz] = beltTangent(worldPath, t)
+    // Probe just outside the rail: coincident outer edges remain, interior dividers disappear.
+    const point: [number, number] = [x - dz * side * 1.15, z + dx * side * 1.15]
+    return !coverage.some((peer) => peer.rail(point))
+  }
+  const shapes = useMemo(() => ({
+    base: sweepBelt(path, from, to, 2.2, 0.085, 0.635),
+    bed: sweepBelt(path, from, to, 2.08, 0.625, 0.715),
+    leftRail: sweepBelt(path, from, to, 0.12, 0.61, 0.93, -1.04, railVisible(-1)),
+    rightRail: sweepBelt(path, from, to, 0.12, 0.61, 0.93, 1.04, railVisible(1)),
+    // Outline hugs the curved strip; the sweep's only hard creases are its outer edges and end caps.
+    outline: new EdgesGeometry(sweepBelt(path, from, to, 2.5, 0.0, 1.0), 30),
+  }), [length, angle, entryAngle, exitAngle, from, to, position[0], position[2], neighbors])
+  useEffect(() => () => { Object.values(shapes).forEach((geometry) => geometry.dispose()) }, [shapes])
+  const material = (colorValue: string) => <meshStandardMaterial color={colorValue} roughness={0.52} metalness={0.18} transparent={ghost} opacity={ghost ? 0.35 : 1} depthWrite={!ghost} />
+  const pick = ghost ? noRaycast : undefined
+  const data = machineId ? { machineId } : {}
+  const slats = Math.min(48, Math.max(3, Math.ceil(length / 0.65)))
+  return <>
+    <mesh geometry={shapes.base} castShadow={!ghost} receiveShadow={!ghost} raycast={pick} userData={data}>{material('#334b50')}</mesh>
+    <mesh geometry={shapes.bed} receiveShadow={!ghost} raycast={pick} userData={data}>{material('#576f70')}</mesh>
+    <mesh geometry={shapes.leftRail} castShadow={!ghost} raycast={pick} userData={data}>{material(color)}</mesh>
+    <mesh geometry={shapes.rightRail} castShadow={!ghost} raycast={pick} userData={data}>{material(color)}</mesh>
+    {highlighted && <lineSegments geometry={shapes.outline} raycast={noRaycast}><lineBasicMaterial color="#29edff" toneMapped={false} depthTest={false} /></lineSegments>}
+    {Array.from({ length: slats }, (_, index) => {
+      const t = from + (to - from) * (index + 0.5) / slats
+      const worldPoint = beltPoint(worldPath, t)
+      if (coverage.some((peer) => peer.slat(worldPoint))) return null
+      const [x, z] = beltPoint(path, t)
+      const [dx, dz] = beltTangent(path, t)
+      return <mesh key={index} position={[x, 0.735, z]} rotation={[0, Math.atan2(-dz, dx), 0]} raycast={pick} userData={data}>
+        <boxGeometry args={[0.08, 0.04, 1.72]} />
+        {material('#b5c6c6')}
+      </mesh>
+    })}
+  </>
 }
 
 /** Curved corner tile between two connected conveyors. */
@@ -86,30 +147,7 @@ export function TransitionMesh({ center, rotation, fromHeight, toHeight, highlig
   </group>
 }
 
-/** Low transfer plate covers the seam where a belt fans out or merges into a trunk. */
-export function JunctionMesh({ center, angle, elevation, highlighted }: { center: [number, number]; angle: number; elevation: number; highlighted: boolean }) {
-  return <group position={[center[0], elevation, center[1]]} rotation={[0, angle, 0]}>
-    <mesh position={[0, 0.69, 0]} castShadow receiveShadow raycast={noRaycast}>
-      <boxGeometry args={[2.28, 0.17, 2.28]} />
-      <meshStandardMaterial color="#334b50" roughness={0.62} metalness={0.18} />
-      {highlighted && <Edges color="#29edff" lineWidth={1.8} toneMapped={false} depthTest={false} raycast={noRaycast} />}
-    </mesh>
-    <mesh position={[0, 0.8, 0]} receiveShadow raycast={noRaycast}>
-      <boxGeometry args={[2.08, 0.05, 2.08]} />
-      <meshStandardMaterial color="#576f70" roughness={0.6} metalness={0.16} />
-    </mesh>
-    {[-0.62, 0, 0.62].map((x) => <mesh key={x} position={[x, 0.84, 0]} raycast={noRaycast}>
-      <boxGeometry args={[0.08, 0.035, 1.8]} />
-      <meshStandardMaterial color="#b5c6c6" roughness={0.55} />
-    </mesh>)}
-    {[-1.1, 1.1].map((z) => <mesh key={z} position={[0, 0.83, z]} raycast={noRaycast}>
-      <boxGeometry args={[2.24, 0.13, 0.1]} />
-      <meshStandardMaterial color="#378568" roughness={0.5} />
-    </mesh>)}
-  </group>
-}
-
-export function MachineMesh({ componentType, position, ghost = false, machineId, selected = false, highlighted = false, locked = false, mounted = false, transitionIn = false, transitionOut = false, groupSize = 1, onDelete, length, breadth, rotation = 0, angle, ports }: {
+export function MachineMesh({ componentType, position, ghost = false, machineId, selected = false, highlighted = false, locked = false, mounted = false, transitionIn = false, transitionOut = false, groupSize = 1, onDelete, length, breadth, rotation = 0, angle, entryAngle, exitAngle, neighbors = [], ports }: {
   componentType: FactoryComponentType
   position: FloorPosition
   ghost?: boolean
@@ -126,29 +164,23 @@ export function MachineMesh({ componentType, position, ghost = false, machineId,
   breadth?: number
   rotation?: number
   angle?: number
+  entryAngle?: number
+  exitAngle?: number
+  neighbors?: PlacedMachine[]
   ports?: { in: boolean; out: boolean }
 }) {
   const component = getFactoryComponent(componentType)
   const [, height] = component.dimensions
   const width = machineWidth(componentType, length)
   const depth = machineDepth(componentType, breadth)
-  const beltWidth = Math.max(0.1, width - (transitionIn ? 1 : 0) - (transitionOut ? 1 : 0))
-  const beltShift = ((transitionIn ? 1 : 0) - (transitionOut ? 1 : 0)) / 2
-  const slatCount = Math.min(24, Math.max(2, Math.floor(beltWidth / 0.65)))
   const part = (at: Point, size: Point, color: string, metalness?: number, emissive?: string) =>
     <BoxPart at={at} size={size} color={color} ghost={ghost} machineId={machineId} metalness={metalness} emissive={emissive} />
   const cylinder = (at: Point, radius: number, partHeight: number, color: string, partRotation?: Point) =>
     <CylinderPart at={at} radius={radius} height={partHeight} color={color} ghost={ghost} machineId={machineId} rotation={partRotation} />
 
   return <group position={position} rotation={[0, angle ?? rotation * Math.PI / 2, 0]} name={`${ghost ? 'Preview' : 'Component'}: ${component.name}`}>
-    {componentType === 'conveyor-belt' ? <group position={[beltShift, 0, 0]}>
-      {part([0, 0.36, 0], [beltWidth, 0.55, 2.2], '#334b50')}
-      {part([0, 0.67, 0], [Math.max(0.08, beltWidth - 0.12), 0.09, 1.78], '#576f70')}
-      {[-1.04, 1.04].map((z) => <BoxPart key={z} at={[0, 0.77, z]} size={[beltWidth, 0.32, 0.12]} color={component.color} ghost={ghost} machineId={machineId} />)}
-      {Array.from({ length: slatCount }, (_, index) =>
-        <BoxPart key={index} at={[-beltWidth / 2 + (index + 0.5) * beltWidth / slatCount, 0.73, 0]} size={[0.08, 0.04, 1.72]} color="#b5c6c6" ghost={ghost} machineId={machineId} />)}
-      {beltWidth > 1.2 && [-beltWidth / 2 + 0.55, beltWidth / 2 - 0.55].map((x) => <BoxPart key={x} at={[x, 0.12, 0]} size={[0.16, 0.24, 1.82]} color="#61747a" ghost={ghost} machineId={machineId} />)}
-    </group> : componentType === 'workstation' ? <>
+    {componentType === 'conveyor-belt' ?
+      <CurvedConveyor length={width} angle={angle ?? rotation * Math.PI / 2} entryAngle={entryAngle} exitAngle={exitAngle} color={component.color} ghost={ghost} machineId={machineId} transitionIn={transitionIn} transitionOut={transitionOut} position={position} neighbors={neighbors} highlighted={(selected || highlighted) && !ghost} /> : componentType === 'workstation' ? <>
       {part([0, 0.23, 0], [width, 0.46, depth], '#8399a5', 0.26)}
       {part([0, 0.48, 0], [width - 0.24, 0.04, depth - 0.24], '#c7d6dc', 0.2)}
       {[-1, 1].map((side) => <BoxPart key={side} at={[0, 0.5, side * (depth / 2 - 0.17)]} size={[width - 0.6, 0.025, 0.08]} color="#eef5f6" ghost={ghost} machineId={machineId} />)}
@@ -199,17 +231,17 @@ export function MachineMesh({ componentType, position, ghost = false, machineId,
         {[[-0.6, -0.65], [0.3, 0.45], [1.2, -0.15]].map(([x, z], index) => <BoxPart key={index} at={[x, 0.96, z]} size={[0.72, 0.38, 0.76]} color="#b9ced2" ghost={ghost} machineId={machineId} />)}
       </>}
     </>}
-    {!ghost && ports && componentType !== 'workstation' && (['in', 'out'] as const).filter((side) => componentType !== 'raw-material' || side === 'out').filter((side) => componentType !== 'finished-goods' || side === 'in').map((side) =>
+    {!ghost && ports && componentType !== 'workstation' && (['in', 'out'] as const).filter((side) => !(componentType === 'conveyor-belt' && ports?.[side])).filter((side) => componentType !== 'raw-material' || side === 'out').filter((side) => componentType !== 'finished-goods' || side === 'in').map((side) =>
       <mesh key={side} position={[(side === 'in' ? -1 : 1) * (width / 2 - 0.06), 0.57, 0]} raycast={noRaycast}>
         <boxGeometry args={[0.2, 0.35, 0.58]} />
         <meshStandardMaterial color={ports[side] ? '#2fd16b' : side === 'in' ? '#e8a33d' : '#2d8cff'} />
       </mesh>)}
     {(selected || highlighted) && !ghost && <>
-      <mesh position={[0, height / 2, 0]} raycast={noRaycast}>
+      {componentType !== 'conveyor-belt' && <mesh position={[0, height / 2, 0]} raycast={noRaycast}>
         <boxGeometry args={[width + 0.3, height + 0.3, depth + 0.3]} />
         <meshBasicMaterial visible={false} />
         <Edges color="#29edff" lineWidth={1.8} toneMapped={false} depthTest={false} raycast={noRaycast} />
-      </mesh>
+      </mesh>}
       {selected && <Html position={[0, height + 0.8, 0]} center zIndexRange={[5, 0]} wrapperClass="machine-status-anchor" style={{ pointerEvents: 'none' }}>
         <section className="machine-status-card" aria-label={`${component.name} details`}>
           {!locked && <button type="button" className="machine-status-delete" aria-label={`Delete ${groupSize > 1 ? 'linked group' : component.name}`} title="Delete" onClick={onDelete}>

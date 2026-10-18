@@ -1,3 +1,5 @@
+import { beltPoint, beltTangent } from './conveyorPath.ts'
+
 export const FLOOR_SIZE = 100
 
 export const FACTORY_COMPONENTS = [
@@ -22,6 +24,8 @@ export type PlacedMachine = {
   breadth?: number // deposits and workstations: extent across the flow direction
   rotation?: number // quarter turns about Y; 0 flows toward +X
   angle?: number // free-angle conveyor heading in radians; overrides quarter turns
+  entryAngle?: number // tangent where a curved conveyor leaves its source
+  exitAngle?: number // tangent where a curved conveyor joins its destination
   groupId?: string // explicit user grouping, in addition to physical port connections
   locked?: boolean
   workstationId?: string // machine mounted on a workstation platform
@@ -59,8 +63,21 @@ export function footprint(type: FactoryComponentType, length?: number, rotation 
   return rotation % 2 ? [depth, width] : [width, depth]
 }
 
-export function machineFootprint(machine: Pick<PlacedMachine, 'componentType' | 'length' | 'breadth' | 'rotation' | 'angle'>): [number, number] {
+export function machineFootprint(machine: Pick<PlacedMachine, 'componentType' | 'length' | 'breadth' | 'rotation' | 'angle' | 'entryAngle' | 'exitAngle'> & Partial<Pick<PlacedMachine, 'position'>>): [number, number] {
   if (machine.componentType !== 'conveyor-belt' || machine.angle === undefined) return footprint(machine.componentType, machine.length, machine.rotation ?? 0, machine.breadth)
+  if (machine.position && (machine.entryAngle !== undefined || machine.exitAngle !== undefined)) {
+    const belt = { ...machine, position: machine.position }
+    let maxX = 0, maxZ = 0
+    const halfDepth = machineDepth('conveyor-belt') / 2
+    for (let index = 0; index <= 24; index++) {
+      const t = index / 24
+      const [x, z] = beltPoint(belt, t)
+      const [dx, dz] = beltTangent(belt, t)
+      maxX = Math.max(maxX, Math.abs(x - machine.position[0]) + Math.abs(dz) * halfDepth)
+      maxZ = Math.max(maxZ, Math.abs(z - machine.position[2]) + Math.abs(dx) * halfDepth)
+    }
+    return [maxX * 2, maxZ * 2]
+  }
   const width = machineWidth(machine.componentType, machine.length)
   const depth = machineDepth(machine.componentType)
   const c = Math.abs(Math.cos(machine.angle))

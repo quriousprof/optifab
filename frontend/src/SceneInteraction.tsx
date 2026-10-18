@@ -1,13 +1,18 @@
 import { useEffect, useRef, useState } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
-import { Raycaster, Vector2 } from 'three'
+import { Raycaster, Vector2, type Object3D } from 'three'
 import { MachineMesh, TransitionMesh } from './MachineMesh'
 import { DIRECTIONS, WORKSTATION_HEIGHT, type FactoryComponentType, type FloorPosition, type PlacedMachine } from './factoryComponents'
 import { assemblyLocked, layDirectionalConveyorRun, linkedAssembly, movementAssembly, resolvePlacement, resolvePlacementTarget, workstationAtPoint, type Laid } from './connections'
 import { isPlacementClick, isPlacementPointer, planePoint, trackPlacementDrag, type PlacementGesture } from './placement'
 import { isDoubleMachineClick, pickMachine, type MachineClick } from './machineInteraction'
 
-type Ghost = { position: FloorPosition; length?: number; rotation: number; angle?: number; workstationId?: string }
+function conveyorPointerPoint(ray: Raycaster, scene: Object3D, machines: PlacedMachine[], fallbackHeight: number) {
+  const hit = machines.find((m) => m.id === pickMachine(ray, scene))
+  return planePoint(ray, hit?.componentType === 'conveyor-belt' ? (hit.workstationId ? WORKSTATION_HEIGHT : 0) + 0.735 : fallbackHeight)
+}
+
+type Ghost = { position: FloorPosition; length?: number; rotation: number; angle?: number; entryAngle?: number; exitAngle?: number; workstationId?: string }
 
 export type PlaceOptions = { length?: number; rotation?: number; workstationId?: string }
 
@@ -78,8 +83,11 @@ export function SceneInteraction({ componentType, rotation, machines, onPlace, o
       raycaster.current.setFromCamera(pointer.current!, camera)
       if (componentType === 'conveyor-belt') { // left-drag lays a conveyor instead of panning
         const topPoint = planePoint(raycaster.current, WORKSTATION_HEIGHT)
-        const host = topPoint && workstationAtPoint(topPoint, machinesRef.current)
-        const point = planePoint(raycaster.current, host ? WORKSTATION_HEIGHT : 0)
+        const hit = machinesRef.current.find((m) => m.id === pickMachine(raycaster.current, scene))
+        const host = hit?.componentType === 'conveyor-belt'
+          ? machinesRef.current.find((m) => m.id === hit.workstationId)
+          : topPoint && workstationAtPoint(topPoint, machinesRef.current)
+        const point = conveyorPointerPoint(raycaster.current, scene, machinesRef.current, host ? WORKSTATION_HEIGHT : 0)
         if (point) {
           lay.current = { start: point, workstationId: host?.id }
           controls.enabled = false
@@ -137,7 +145,7 @@ export function SceneInteraction({ componentType, rotation, machines, onPlace, o
           updatePointer(event)
           camera.updateMatrixWorld()
           raycaster.current.setFromCamera(pointer.current!, camera)
-          const point = planePoint(raycaster.current, start.workstationId ? WORKSTATION_HEIGHT : 0)
+          const point = conveyorPointerPoint(raycaster.current, scene, machinesRef.current, start.workstationId ? WORKSTATION_HEIGHT : 0)
           const pieces = point && layDirectionalConveyorRun(start.start, point, machinesRef.current, rotationRef.current, start.workstationId)
           if (pieces) onPlaceRun(pieces)
           setGhost(null)
@@ -221,7 +229,7 @@ export function SceneInteraction({ componentType, rotation, machines, onPlace, o
     raycaster.current.setFromCamera(pointer.current, camera)
     let next: Ghost[] | null = null
     if (lay.current) {
-      const point = planePoint(raycaster.current, lay.current.workstationId ? WORKSTATION_HEIGHT : 0)
+      const point = conveyorPointerPoint(raycaster.current, scene, machinesRef.current, lay.current.workstationId ? WORKSTATION_HEIGHT : 0)
       next = point && layDirectionalConveyorRun(lay.current.start, point, machinesRef.current, rotationRef.current, lay.current.workstationId)
     } else {
       const hovered = pickMachine(raycaster.current, scene)
@@ -234,7 +242,7 @@ export function SceneInteraction({ componentType, rotation, machines, onPlace, o
       if (!next) return previous === null ? previous : null
       return previous && previous.length === next.length && previous.every((piece, index) =>
         piece.position[0] === next[index].position[0] && piece.position[2] === next[index].position[2] &&
-        piece.length === next[index].length && piece.rotation === next[index].rotation && piece.angle === next[index].angle && piece.workstationId === next[index].workstationId) ? previous : next
+        piece.length === next[index].length && piece.rotation === next[index].rotation && piece.angle === next[index].angle && piece.entryAngle === next[index].entryAngle && piece.exitAngle === next[index].exitAngle && piece.workstationId === next[index].workstationId) ? previous : next
     })
   })
 
@@ -242,7 +250,7 @@ export function SceneInteraction({ componentType, rotation, machines, onPlace, o
   useEffect(() => { setGhost(null) }, [componentType])
 
   return ghost && componentType ? <>{ghost.map((piece, index) =>
-    <MachineMesh key={index} componentType={componentType} position={[piece.position[0], piece.workstationId ? WORKSTATION_HEIGHT : 0, piece.position[2]]} length={piece.length} rotation={piece.rotation} angle={piece.angle} transitionIn={index > 0} transitionOut={index < ghost.length - 1} ghost />)}
+    <MachineMesh key={index} componentType={componentType} position={[piece.position[0], piece.workstationId ? WORKSTATION_HEIGHT : 0, piece.position[2]]} length={piece.length} rotation={piece.rotation} angle={piece.angle} entryAngle={piece.entryAngle} exitAngle={piece.exitAngle} transitionIn={index > 0} transitionOut={index < ghost.length - 1} ghost />)}
     {componentType === 'conveyor-belt' && ghost.length === 2 && (() => {
       const first = ghost[0]
       const [dx, dz] = first.angle === undefined ? DIRECTIONS[first.rotation] : [Math.cos(first.angle), -Math.sin(first.angle)]
