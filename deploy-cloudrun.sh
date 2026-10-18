@@ -9,7 +9,7 @@ BACKEND_IMAGE="${REPO}-backend"
 FRONTEND_IMAGE="${REPO}-frontend"
 
 echo "==> Building and pushing backend"
-docker build --platform linux/amd64 -t "${BACKEND_IMAGE}" ./backend
+docker build --platform linux/amd64 -f backend/Dockerfile -t "${BACKEND_IMAGE}" .
 docker push "${BACKEND_IMAGE}"
 
 echo "==> Deploying backend to Cloud Run"

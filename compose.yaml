@@ -17,11 +17,13 @@ services:
   backend:
     image: sohamghugare/optifab-backend
     build:
-      context: ./backend
+      context: .
+      dockerfile: backend/Dockerfile
     expose:
       - "8000"
     volumes:
       - ./backend:/app
+      - ./docs:/app/docs
 
 volumes:
   caddy_data:
